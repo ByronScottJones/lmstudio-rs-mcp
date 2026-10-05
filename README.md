@@ -408,8 +408,9 @@ MIT
 
 ## Independent Reviews
 
+[![M8ven Score](https://m8ven.ai/badge/mcp/byronscottjones-lmstudio-mcp-1nzbmv)](https://m8ven.ai/mcp/byronscottjones-lmstudio-mcp-1nzbmv?s=readme)
 
-[![M8ven Score](https://m8ven.ai/badge/mcp/byronscottjones/lmstudio-rs-mcp)](https://m8ven.ai/mcp/byronscottjones/lmstudio-rs-mcp?s=readme
+[![M8ven Score](https://m8ven.ai/badge/mcp/byronscottjones-lmstudio-rs-mcp-1ubv4h)](https://m8ven.ai/mcp/byronscottjones-lmstudio-rs-mcp-1ubv4h?s=readme)
 
 ## AI Notice
 
