@@ -397,6 +397,11 @@ cargo build --release      # release binary
 
 MIT
 
+## Independent Reviews
+
+
+[![M8ven Score](https://m8ven.ai/badge/mcp/byronscottjones/lmstudio-rs-mcp)](https://m8ven.ai/mcp/byronscottjones/lmstudio-rs-mcp?s=readme
+
 ## AI Notice
 
 I am a software engineer with nearly 50 years of experience. I now use AI tools to assist me with development. For this project, I have used Claude.ai. After each feature update, I reviewed the application to ensure that it was working as I intended. As someone with Frontotemporal Dementia, AI tools are literally saving my career, and allowing me to continue working longer in a field that I love. If you don't like AI, you are welcome to not use my application.
