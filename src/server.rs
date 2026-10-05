@@ -45,21 +45,39 @@ impl LmStudioServer {
 #[tool_router]
 impl LmStudioServer {
     #[tool(
-        description = "Check connectivity to the configured LLM provider (LM Studio, Ollama, OpenAI, or Anthropic — see LLM_PROVIDER)"
+        description = "Check connectivity to the configured LLM provider (LM Studio, Ollama, OpenAI, or Anthropic — see LLM_PROVIDER)",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn health_check(&self) -> Json<crate::types::ToolResult<health_check::HealthCheckData>> {
         Json(health_check::health_check(&self.client).await)
     }
 
     #[tool(
-        description = "Check the LM Studio environment: whether LM Studio is installed (and its app version where readable), whether the `lms` CLI is available (and its build commit), and whether the LM Studio REST API is reachable. Each is reported independently, so this works even when LM Studio isn't running or isn't installed"
+        description = "Check the LM Studio environment: whether LM Studio is installed (and its app version where readable), whether the `lms` CLI is available (and its build commit), and whether the LM Studio REST API is reachable. Each is reported independently, so this works even when LM Studio isn't running or isn't installed",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn lmstudio_status(&self) -> Json<crate::types::ToolResult<lms::LmStudioStatusData>> {
         Json(lms::lmstudio_status(&self.client).await)
     }
 
     #[tool(
-        description = "Run an `lms` CLI command for LM Studio features the REST API lacks: server start/stop/status, runtime engine management (ls/select/update/get/survey), LM Link (status/enable/disable/set-device-name/set-preferred-device), model download (`get`), `import`, Hub `clone`, and login state (`whoami`/`logout`). Model list/load/unload have their own tools. Runs without a shell and without stdin, so commands can't prompt: those that would (runtime_select, runtime_get, link_set_device_name, link_set_preferred_device (takes a device identifier), get, import, clone) require an argument in `args`, e.g. runtime_select with [\"--latest\"] or an engine alias from runtime_ls, runtime_update with [\"--all\"] to update every installed extension rather than only the selected ones. `get` and `import` pass -y"
+        description = "Run an `lms` CLI command for LM Studio features the REST API lacks: server start/stop/status, runtime engine management (ls/select/update/get/survey), LM Link (status/enable/disable/set-device-name/set-preferred-device), model download (`get`), `import`, Hub `clone`, and login state (`whoami`/`logout`). Model list/load/unload have their own tools. Runs without a shell and without stdin, so commands can't prompt: those that would (runtime_select, runtime_get, link_set_device_name, link_set_preferred_device (takes a device identifier), get, import, clone) require an argument in `args`, e.g. runtime_select with [\"--latest\"] or an engine alias from runtime_ls, runtime_update with [\"--all\"] to update every installed extension rather than only the selected ones. `get` and `import` pass -y",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn lms_cli(
         &self,
@@ -69,14 +87,26 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "List models available from the configured provider — the local library for LM Studio/Ollama, or every model the API key can use for OpenAI/Anthropic"
+        description = "List models available from the configured provider — the local library for LM Studio/Ollama, or every model the API key can use for OpenAI/Anthropic",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn list_models(&self) -> Json<crate::types::ToolResult<Vec<models::ModelSummary>>> {
         Json(models::list_models(&self.client).await)
     }
 
     #[tool(
-        description = "List all currently loaded model instances. Only meaningful for LM Studio/Ollama — cloud providers have no loading concept and return an empty list"
+        description = "List all currently loaded model instances. Only meaningful for LM Studio/Ollama — cloud providers have no loading concept and return an empty list",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn list_loaded_models(
         &self,
@@ -85,7 +115,13 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "Identify the currently loaded model (or models, if more than one is loaded). Only meaningful for LM Studio/Ollama"
+        description = "Identify the currently loaded model (or models, if more than one is loaded). Only meaningful for LM Studio/Ollama",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn get_current_model(
         &self,
@@ -94,7 +130,13 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "Get detailed information about a specific loaded model instance. Only meaningful for LM Studio/Ollama"
+        description = "Get detailed information about a specific loaded model instance. Only meaningful for LM Studio/Ollama",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn get_model_info(
         &self,
@@ -104,7 +146,13 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "Load a model into memory. Only supported by LM Studio/Ollama — cloud providers have nothing to load"
+        description = "Load a model into memory. Only supported by LM Studio/Ollama — cloud providers have nothing to load",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn load_model(
         &self,
@@ -113,7 +161,15 @@ impl LmStudioServer {
         Json(models::load_model(&self.client, input).await)
     }
 
-    #[tool(description = "Unload a model instance from memory. Only supported by LM Studio/Ollama")]
+    #[tool(
+        description = "Unload a model instance from memory. Only supported by LM Studio/Ollama",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
     async fn unload_model(
         &self,
         Parameters(input): Parameters<models::UnloadModelInput>,
@@ -122,7 +178,13 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "Generate a chat completion from the configured provider's current/named model"
+        description = "Generate a chat completion from the configured provider's current/named model",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn chat_completion(
         &self,
@@ -132,7 +194,13 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "Generate a raw text completion (non-chat format) — simpler and faster than chat_completion for single-turn tasks like code completion"
+        description = "Generate a raw text completion (non-chat format) — simpler and faster than chat_completion for single-turn tasks like code completion",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn text_completion(
         &self,
@@ -142,7 +210,13 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "Generate vector embeddings for text, for semantic search, RAG, and similarity comparisons. Requires an embedding-specific model (or provider — Anthropic has no embeddings endpoint)"
+        description = "Generate vector embeddings for text, for semantic search, RAG, and similarity comparisons. Requires an embedding-specific model (or provider — Anthropic has no embeddings endpoint)",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn generate_embeddings(
         &self,
@@ -152,7 +226,13 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "Create a stateful response via a /v1/responses-style endpoint — conversation context is tracked server-side by response ID, no manual message history needed. Only LM Studio (v0.3.29+) and OpenAI support this; other providers return an error directing you to chat_completion instead"
+        description = "Create a stateful response via a /v1/responses-style endpoint — conversation context is tracked server-side by response ID, no manual message history needed. Only LM Studio (v0.3.29+) and OpenAI support this; other providers return an error directing you to chat_completion instead",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn create_response(
         &self,
@@ -162,7 +242,13 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "Start a stateful multi-turn conversation with a persistent system prompt. Returns a response_id to pass to continue_conversation. Only LM Studio (v0.3.29+) and OpenAI support this"
+        description = "Start a stateful multi-turn conversation with a persistent system prompt. Returns a response_id to pass to continue_conversation. Only LM Studio (v0.3.29+) and OpenAI support this",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn start_conversation(
         &self,
@@ -172,7 +258,13 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "Continue a stateful conversation started with start_conversation — the original system prompt stays in effect automatically"
+        description = "Continue a stateful conversation started with start_conversation — the original system prompt stays in effect automatically",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn continue_conversation(
         &self,
@@ -182,7 +274,13 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "Delegate a task to a model from the configured provider acting as a subagent, with its own sandboxed tools (read_file, list_directory, search_files, and — depending on `capability` — write_file, run_command). Comparable to how Claude Code spawns a subagent: it works autonomously across as many tool calls as it needs and you get back a final report, not the full transcript. Good for offloading well-scoped, lower-level work (investigate a directory, make a specific edit, run and interpret a build/test command) from a smaller/local model instead of doing it yourself."
+        description = "Delegate a task to a model from the configured provider acting as a subagent, with its own sandboxed tools (read_file, list_directory, search_files, and — depending on `capability` — write_file, run_command). Comparable to how Claude Code spawns a subagent: it works autonomously across as many tool calls as it needs and you get back a final report, not the full transcript. Good for offloading well-scoped, lower-level work (investigate a directory, make a specific edit, run and interpret a build/test command) from a smaller/local model instead of doing it yourself.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn run_subagent(
         &self,
@@ -192,7 +290,13 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "Draft a new local feedback entry (issue/error/recommendation) about this server. Stored locally only — nothing leaves this machine until feedback_submit is called."
+        description = "Draft a new local feedback entry (issue/error/recommendation) about this server. Stored locally only — nothing leaves this machine until feedback_submit is called.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
     async fn feedback_create(
         &self,
@@ -201,14 +305,30 @@ impl LmStudioServer {
         Json(feedback::feedback_create(&self.feedback_store, input))
     }
 
-    #[tool(description = "List all local feedback entries (drafts and submitted).")]
+    #[tool(
+        description = "List all local feedback entries (drafts and submitted).",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
     async fn feedback_list(
         &self,
     ) -> Json<crate::types::ToolResult<Vec<crate::feedback::store::FeedbackEntry>>> {
         Json(feedback::feedback_list(&self.feedback_store))
     }
 
-    #[tool(description = "Show one local feedback entry in full.")]
+    #[tool(
+        description = "Show one local feedback entry in full.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
     async fn feedback_get(
         &self,
         Parameters(input): Parameters<feedback::FeedbackIdInput>,
@@ -216,7 +336,15 @@ impl LmStudioServer {
         Json(feedback::feedback_get(&self.feedback_store, input))
     }
 
-    #[tool(description = "Edit a local feedback entry's category, title, and/or body.")]
+    #[tool(
+        description = "Edit a local feedback entry's category, title, and/or body.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
     async fn feedback_update(
         &self,
         Parameters(input): Parameters<feedback::FeedbackUpdateInput>,
@@ -224,7 +352,15 @@ impl LmStudioServer {
         Json(feedback::feedback_update(&self.feedback_store, input))
     }
 
-    #[tool(description = "Delete a local feedback entry.")]
+    #[tool(
+        description = "Delete a local feedback entry.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
     async fn feedback_delete(
         &self,
         Parameters(input): Parameters<feedback::FeedbackIdInput>,
@@ -233,7 +369,13 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "Check a local feedback entry's title against this repo's existing GitHub issues, without submitting anything. feedback_submit runs this same check automatically."
+        description = "Check a local feedback entry's title against this repo's existing GitHub issues, without submitting anything. feedback_submit runs this same check automatically.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn feedback_check_duplicates(
         &self,
@@ -251,7 +393,13 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "Submit a local feedback entry to GitHub. Never files the issue directly through the API: first checks for an existing duplicate issue (discarding the local draft without submitting if one matches), then asks the connected client to let a human review — and optionally edit — the title/body via MCP elicitation, then hands the client a pre-filled \"new issue\" page to open via a second elicitation. A human still has to click \"Create\" there. If the client doesn't support elicitation, falls back to opening that page directly in this machine's browser instead."
+        description = "Submit a local feedback entry to GitHub. Never files the issue directly through the API: first checks for an existing duplicate issue (discarding the local draft without submitting if one matches), then asks the connected client to let a human review — and optionally edit — the title/body via MCP elicitation, then hands the client a pre-filled \"new issue\" page to open via a second elicitation. A human still has to click \"Create\" there. If the client doesn't support elicitation, falls back to opening that page directly in this machine's browser instead.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn feedback_submit(
         &self,
