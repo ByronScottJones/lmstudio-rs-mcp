@@ -62,6 +62,14 @@ support them return a normal `ToolResult` explaining that (success for a
 read like `list_loaded_models`, a clear error for a mutation like
 `load_model`) rather than a confusing raw HTTP error.
 
+Every tool declares all four MCP annotation hints (`readOnlyHint`,
+`destructiveHint`, `idempotentHint`, `openWorldHint`) as explicit booleans,
+so a host can warn before running anything that changes state. Tools that
+can stop a server, unload a model, run commands, or delete data
+(`lms_cli`, `unload_model`, `run_subagent`, `feedback_delete`,
+`feedback_submit`) are marked destructive. `tests/mcp_stdio.rs` enforces
+that every tool is annotated and exercises each one end to end.
+
 Every tool returns the same envelope — `{ success, message, data?, error? }`
 — so a client can handle success and failure uniformly (this convention is
 carried over from the TypeScript project).
@@ -389,7 +397,8 @@ quirk they exist to paper over, are isolated to `src/client.rs`.
 ```bash
 cargo fmt --all           # format
 cargo clippy --all-targets -- -D warnings   # lint
-cargo test                 # unit tests
+cargo test                 # unit tests + tests/mcp_stdio.rs (spawns the server, talks MCP over stdio;
+                           # needs no LM Studio, provider, or network)
 cargo build --release      # release binary
 ```
 
