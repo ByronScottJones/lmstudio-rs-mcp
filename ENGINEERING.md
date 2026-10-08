@@ -5,7 +5,9 @@ continues this project. Read it before making changes, and update it in the
 same change set whenever architecture, decisions, contracts, verification
 status, or known risks change.
 
-Audience: contributors and coding agents. User-facing documentation lives in
+Audience: contributors and coding agents. Agents start from
+[AGENTS.md](AGENTS.md), which routes to this file and to the project-level
+guidance in [`agents/`](agents/). User-facing documentation lives in
 [README.md](README.md); contribution workflow lives in
 [CONTRIBUTING.md](CONTRIBUTING.md); vulnerability reporting lives in
 [SECURITY.md](SECURITY.md).
@@ -415,6 +417,8 @@ together. Never hardcode credentials or environment-specific values.
 | `src/feedback/store.rs` | Local JSON CRUD for feedback entries |
 | `src/feedback/github.rs` | Duplicate-issue check and token resolution |
 | `tests/mcp_stdio.rs` | End-to-end tests over the real binary |
+| `AGENTS.md` | Always-active agent guidance for this project: essentials, topic routing, general rules |
+| `agents/*.md` | Project-level copies of the shared guidance in `~/.agents` (git, coding, rust, testing, markdown, makefile, engineering-workflow, security, configuration) |
 | `Makefile`, `tasks/Makefile.lint` | Task runner (see [section 9](#9-build-run-and-validate)) |
 | `.github/workflows/ci.yml` | CI: format, clippy, release build, tests on four targets |
 | `.github/` templates | Issue and pull request templates |
@@ -651,6 +655,14 @@ Risks:
 - **Guard is heuristic.** The subagent command guard cannot stop every
   obfuscated command; keep capability tiers tight.
 - **App version is macOS only.** Other platforms report `null`.
+- **Feedback file location.** Drafts are stored at
+  `~/.lmstudio-rs-mcp/feedback.json`, a dotfile in the home directory. The
+  configuration guidance prefers the operating system's application-data
+  directory (for example `~/Library/Application Support/<app>/` on macOS).
+  Moving it is a breaking change for existing drafts, so it needs a
+  migration or a documented upgrade path.
+- **Guidance copies can go stale.** `agents/*.md` are snapshots of
+  `~/.agents`; refresh them when the shared guidance changes.
 
 Gaps:
 
@@ -665,7 +677,6 @@ Possible future work:
 - A time-limited `log stream` wrapper.
 - Per-command confirmation for destructive `lms_cli` commands via MCP
   elicitation.
-- A project-level `AGENTS.md` and `agents/` folder linking this file.
 
 ## 12. Change Playbooks
 
