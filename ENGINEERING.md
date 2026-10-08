@@ -625,9 +625,8 @@ that affects it.
 
 | Area | How | When | Result |
 | --- | --- | --- | --- |
-| Unit tests (126) | `cargo test -- --skip sse::tests` | 2026-10-08, macOS arm64, sandboxed | Pass |
-| `sse` tests (4) | Full `cargo test` (130 unit tests) | Last full pass 2026-10-05 | Pass then; 3 fail on 2026-10-08 with `Operation not permitted` because the sandbox blocks local port binding |
-| Integration tests (7) | `cargo test --test mcp_stdio` | 2026-10-08, macOS arm64 | Pass |
+| Format, clippy, unit tests (130) | `make check` | 2026-10-08, macOS arm64 | Pass, including the `sse` tests (three of which bind a local port) |
+| Integration tests (7) | `make check` (runs `cargo test`) | 2026-10-08, macOS arm64 | Pass |
 | CI (format, clippy, release build, tests) | GitHub Actions on macOS arm64 and x86_64, Windows, Linux | PR #5 (`lms` tools) build | Pass on all four targets; later PRs were not re-checked for this document |
 | `lmstudio_status`, `lms_cli` `server_status`, `runtime_survey` | Called over stdio against a real LM Studio 0.4.25+1 install | 2026-10-02, macOS | Correct output |
 | Argument behavior of `runtime select/get/update`, `link set-*`, `server start/stop` | Observed by the maintainer running the CLI by hand | 2026-10-02 | Matches the design |
