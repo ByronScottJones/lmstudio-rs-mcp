@@ -3,14 +3,18 @@
 ## Development
 
 ```bash
-cargo fmt --all                              # format
-cargo clippy --all-targets -- -D warnings    # lint
-cargo test                                   # unit tests
-cargo build --release                        # release binary
+make check                                   # fmt check + clippy + tests
+make build/release                           # release binary
 ```
 
-All four should pass clean before opening a PR — CI runs the same checks
-on macOS, Windows, and Linux.
+`make check` runs `cargo fmt --all -- --check`,
+`cargo clippy --all-targets -- -D warnings`, and `cargo test`. It should
+pass clean before opening a PR — CI runs the same checks on macOS, Windows,
+and Linux. Run `make help` for every target.
+
+Read [ENGINEERING.md](ENGINEERING.md) first: it is the development
+specification. Specify a behavior change there (requirement, contract,
+acceptance criterion) before implementing it, and update it in the same PR.
 
 ## Workflow
 

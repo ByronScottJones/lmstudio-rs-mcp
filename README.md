@@ -395,12 +395,19 @@ quirk they exist to paper over, are isolated to `src/client.rs`.
 ## Development
 
 ```bash
-cargo fmt --all           # format
-cargo clippy --all-targets -- -D warnings   # lint
-cargo test                 # unit tests + tests/mcp_stdio.rs (spawns the server, talks MCP over stdio;
-                           # needs no LM Studio, provider, or network)
-cargo build --release      # release binary
+make help                  # list every target
+make check                 # format check, clippy, and all tests (what CI runs)
+make build/release         # release binary
 ```
+
+`make check` wraps `cargo fmt --all -- --check`,
+`cargo clippy --all-targets -- -D warnings`, and `cargo test` — the unit
+tests plus `tests/mcp_stdio.rs`, which spawns the server and talks MCP over
+stdio and needs no LM Studio, provider, or network.
+
+[ENGINEERING.md](ENGINEERING.md) holds the development specification:
+requirements, tool contracts, design decisions, verification status, and the
+spec-driven workflow to follow when changing behavior.
 
 ## License
 
