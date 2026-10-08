@@ -1,0 +1,15 @@
+# Lint targets (namespace: lint/).
+
+.PHONY: lint/fmt lint/fix lint/clippy
+
+## Check formatting without changing files
+lint/fmt:
+	$(CARGO) fmt --all -- --check
+
+## Apply rustfmt to every file
+lint/fix:
+	$(CARGO) fmt --all
+
+## Run clippy on all targets, treating warnings as errors
+lint/clippy: deps
+	$(CARGO) clippy --all-targets --locked -- -D warnings
