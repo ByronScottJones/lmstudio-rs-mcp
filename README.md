@@ -18,10 +18,10 @@ provider" result otherwise rather than erroring confusingly.
 This project originally merged the functionality of two earlier, separate
 LM-Studio-only MCP servers:
 
-- **[LMStudio-MCP](../LMStudio-MCP)** (Python) — inference: chat/text
+- **[LMStudio-MCP](https://github.com/infinitimeless/LMStudio-MCP)** (Python) — inference: chat/text
   completions, embeddings, and stateful conversations via LM Studio's
   OpenAI-compatible API.
-- **[lm-studio-mcp-server](../lm-studio-mcp-server)** (TypeScript) — model
+- **[lm-studio-mcp-server](https://github.com/portertech/lm-studio-mcp-server)** (TypeScript) — model
   management: list, load, unload, and inspect models via LM Studio's SDK.
 
 Both capabilities were originally implemented over LM Studio's **native REST
