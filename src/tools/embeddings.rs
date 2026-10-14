@@ -16,6 +16,10 @@ pub enum EmbeddingText {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GenerateEmbeddingsInput {
+    /// Provider profile to use (see `list_profiles`). Defaults to the
+    /// server's default profile.
+    #[serde(default)]
+    pub profile: Option<String>,
     /// Single text string or list of texts to embed.
     pub text: EmbeddingText,
     /// Embedding model to use. Omit to use the currently loaded model, but an

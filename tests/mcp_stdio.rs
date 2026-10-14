@@ -20,6 +20,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 /// annotating and testing it fails here.
 const ALL_TOOLS: &[&str] = &[
     "health_check",
+    "list_profiles",
     "lmstudio_status",
     "lms_cli",
     "list_models",
@@ -54,9 +55,16 @@ struct Server {
 
 impl Server {
     fn start() -> Self {
+        Self::start_with(&[], |_| {})
+    }
+
+    /// Start the server with extra environment variables; `prepare` runs
+    /// on the scratch directory before launch (to write a profiles file).
+    fn start_with(env: &[(&str, &str)], prepare: impl FnOnce(&std::path::Path)) -> Self {
         let scratch =
             std::env::temp_dir().join(format!("lmstudio-rs-mcp-e2e-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&scratch).expect("create scratch dir");
+        prepare(&scratch);
 
         let mut child = Command::new(env!("CARGO_BIN_EXE_lmstudio-rs-mcp"))
             .env("LLM_PROVIDER", "lmstudio")
@@ -65,7 +73,9 @@ impl Server {
             .env("HOME", &scratch)
             .env("USERPROFILE", &scratch)
             .env_remove("LLM_API_KEY")
+            .env_remove("LLM_PROFILES_FILE")
             .env_remove("GITHUB_TOKEN")
+            .envs(env.iter().copied())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -207,6 +217,7 @@ fn annotations_match_what_the_tools_actually_do() {
     // Pure reads must not be flagged as mutating.
     for read_only in [
         "health_check",
+        "list_profiles",
         "lmstudio_status",
         "list_models",
         "list_loaded_models",
@@ -359,4 +370,69 @@ fn feedback_submit_and_duplicate_check_fail_cleanly_for_an_unknown_entry() {
         let envelope = server.call(tool, json!({ "id": 999_999 }));
         assert_eq!(envelope["success"], json!(false), "{tool}: {envelope}");
     }
+}
+
+#[test]
+fn profiles_route_calls_to_different_backends() {
+    // Both backends refuse connections; the point is which one is tried.
+    let dir =
+        std::env::temp_dir().join(format!("lmstudio-rs-mcp-profiles-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("profiles.toml");
+    std::fs::write(
+        &file,
+        "default_profile = \"alpha\"\n\
+         [profiles.alpha]\nprovider = \"lmstudio\"\nbase_url = \"http://127.0.0.1:1\"\n\
+         [profiles.beta]\nprovider = \"openai-compatible\"\nbase_url = \"http://127.0.0.1:2\"\n",
+    )
+    .unwrap();
+    let mut server = Server::start_with(&[("LLM_PROFILES_FILE", file.to_str().unwrap())], |_| {});
+
+    let listed = server.call("list_profiles", json!({}));
+    assert_eq!(listed["success"], json!(true), "{listed}");
+    let profiles = listed["data"].as_array().unwrap();
+    assert_eq!(profiles.len(), 2, "{listed}");
+    assert_eq!(profiles[0]["name"], json!("alpha"));
+    assert_eq!(profiles[0]["is_default"], json!(true));
+    assert_eq!(profiles[1]["provider"], json!("openai-compatible"));
+
+    // Omitted profile -> default; the result says which profile served it.
+    let default = server.call("health_check", json!({}));
+    assert_eq!(default["profile"], json!("alpha"), "{default}");
+    assert!(default["message"].as_str().unwrap().contains("127.0.0.1:1"));
+
+    let beta = server.call("health_check", json!({ "profile": "beta" }));
+    assert_eq!(beta["profile"], json!("beta"), "{beta}");
+    assert!(beta["message"].as_str().unwrap().contains("127.0.0.1:2"));
+
+    // Tools with their own inputs accept `profile` too.
+    let chat = server.call(
+        "chat_completion",
+        json!({ "prompt": "hi", "model": "x", "profile": "beta" }),
+    );
+    assert_eq!(chat["profile"], json!("beta"), "{chat}");
+
+    let unknown = server.call("health_check", json!({ "profile": "nope" }));
+    assert_eq!(error_code(&unknown), "INVALID_INPUT", "{unknown}");
+    assert!(unknown["message"].as_str().unwrap().contains("alpha, beta"));
+}
+
+#[test]
+fn an_invalid_profiles_file_stops_the_server_before_serving() {
+    let scratch = std::env::temp_dir().join(format!(
+        "lmstudio-rs-mcp-badprofiles-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&scratch).unwrap();
+    let file = scratch.join("profiles.toml");
+    std::fs::write(&file, "[profiles.x]\nprovider = \"bedrock\"\n").unwrap();
+    let status = Command::new(env!("CARGO_BIN_EXE_lmstudio-rs-mcp"))
+        .env("LLM_PROFILES_FILE", &file)
+        .env("HOME", &scratch)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("spawn server binary");
+    assert!(!status.success());
 }

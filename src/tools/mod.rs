@@ -4,5 +4,6 @@ pub mod feedback;
 pub mod health_check;
 pub mod lms;
 pub mod models;
+pub mod profiles;
 pub mod responses;
 pub mod subagent;

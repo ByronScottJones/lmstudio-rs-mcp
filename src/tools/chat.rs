@@ -13,6 +13,10 @@ use serde_json::{Map, Value};
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ChatCompletionInput {
+    /// Provider profile to use (see `list_profiles`). Defaults to the
+    /// server's default profile.
+    #[serde(default)]
+    pub profile: Option<String>,
     /// The user's prompt to send to the model.
     pub prompt: String,
     /// Optional system instructions for the model.
@@ -156,6 +160,10 @@ fn extract_chat_result(resp: Value) -> ToolResult<ChatCompletionData> {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct TextCompletionInput {
+    /// Provider profile to use (see `list_profiles`). Defaults to the
+    /// server's default profile.
+    #[serde(default)]
+    pub profile: Option<String>,
     /// The text prompt to complete.
     pub prompt: String,
     /// Controls randomness (0.0 to 2.0). Defaults to 0.7.

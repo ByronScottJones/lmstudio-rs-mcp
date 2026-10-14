@@ -1,11 +1,13 @@
 //! lmstudio-rs-mcp: an MCP server bridging Claude (and other MCP clients) to
-//! LM Studio, Ollama, OpenAI, or Anthropic — selected via `LLM_PROVIDER`.
+//! LM Studio, Ollama, OpenAI, Anthropic, or any OpenAI-compatible server,
+//! through one or more named provider profiles.
 //! Cross-platform (macOS, Windows, Linux).
 
 mod client;
 mod config;
 mod feedback;
 mod lms;
+mod profiles;
 mod providers;
 mod server;
 mod sse;
@@ -13,7 +15,6 @@ mod subagent;
 mod tools;
 mod types;
 
-use client::ApiClient;
 use rmcp::transport::stdio;
 use rmcp::ServiceExt;
 use server::LmStudioServer;
@@ -30,19 +31,23 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let config = config::Config::from_env().map_err(|e| {
+    let profiles = config::Profiles::load().map_err(|e| {
         tracing::error!("{e}");
         anyhow::anyhow!(e)
     })?;
-    tracing::info!(
-        provider = %config.provider,
-        base_url = %config.base_url,
-        "Starting lmstudio-rs-mcp"
-    );
+    for profile in &profiles.profiles {
+        tracing::info!(
+            profile = %profile.name,
+            provider = %profile.provider,
+            base_url = %profile.base_url,
+            default = profile.name == profiles.default,
+            "Configured provider profile"
+        );
+    }
+    tracing::info!("Starting lmstudio-rs-mcp");
 
-    let client = ApiClient::new(&config);
     let feedback_store = feedback::store::FeedbackStore::new()?;
-    let server = LmStudioServer::new(client, feedback_store);
+    let server = LmStudioServer::new(profiles, feedback_store);
 
     let running = server.serve(stdio()).await?;
 

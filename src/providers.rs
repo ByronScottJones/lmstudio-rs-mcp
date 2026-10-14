@@ -1,6 +1,6 @@
 //! The set of backends this server can talk to, and what each one
-//! supports. Exactly one is active per server instance (selected by
-//! `LLM_PROVIDER`) — this isn't a multi-backend router.
+//! supports. A server instance can hold several named profiles (see
+//! `config`), each bound to exactly one of these.
 
 use std::fmt;
 
@@ -25,6 +25,10 @@ pub enum Provider {
     Ollama,
     OpenAi,
     Anthropic,
+    /// Any other server that speaks the OpenAI `/v1` API (vLLM, llama.cpp
+    /// server, oMLX, ...). No model management, no `/v1/responses`, no
+    /// default URL, and the API key is optional.
+    OpenAiCompatible,
 }
 
 impl Provider {
@@ -34,6 +38,7 @@ impl Provider {
             "ollama" => Some(Provider::Ollama),
             "openai" | "open-ai" => Some(Provider::OpenAi),
             "anthropic" | "claude" => Some(Provider::Anthropic),
+            "openai-compatible" | "openai_compatible" => Some(Provider::OpenAiCompatible),
             _ => None,
         }
     }
@@ -44,22 +49,25 @@ impl Provider {
             Provider::Ollama => "ollama",
             Provider::OpenAi => "openai",
             Provider::Anthropic => "anthropic",
+            Provider::OpenAiCompatible => "openai-compatible",
         }
     }
 
-    /// Used when neither `LLM_BASE_URL` nor (for `lmstudio`) the legacy
-    /// `LMSTUDIO_*` variables are set.
-    pub fn default_base_url(self) -> &'static str {
+    /// Used when no base URL is configured. `None` means the provider has
+    /// no sensible default and the profile must say where the server is.
+    pub fn default_base_url(self) -> Option<&'static str> {
         match self {
-            Provider::LmStudio => "http://127.0.0.1:1234",
-            Provider::Ollama => "http://127.0.0.1:11434",
-            Provider::OpenAi => "https://api.openai.com",
-            Provider::Anthropic => "https://api.anthropic.com",
+            Provider::LmStudio => Some("http://127.0.0.1:1234"),
+            Provider::Ollama => Some("http://127.0.0.1:11434"),
+            Provider::OpenAi => Some("https://api.openai.com"),
+            Provider::Anthropic => Some("https://api.anthropic.com"),
+            Provider::OpenAiCompatible => None,
         }
     }
 
     /// Cloud providers can't function without a key; local ones
-    /// (LM Studio, Ollama) only need one if the user turned on auth.
+    /// (LM Studio, Ollama, generic OpenAI-compatible servers) only need one
+    /// if the user turned on auth.
     pub fn requires_api_key(self) -> bool {
         matches!(self, Provider::OpenAi | Provider::Anthropic)
     }
@@ -119,6 +127,10 @@ mod tests {
         assert_eq!(Provider::parse("ollama"), Some(Provider::Ollama));
         assert_eq!(Provider::parse("OpenAI"), Some(Provider::OpenAi));
         assert_eq!(Provider::parse("Claude"), Some(Provider::Anthropic));
+        assert_eq!(
+            Provider::parse("OpenAI-Compatible"),
+            Some(Provider::OpenAiCompatible)
+        );
     }
 
     #[test]
@@ -132,6 +144,26 @@ mod tests {
         assert!(!Provider::Ollama.requires_api_key());
         assert!(Provider::OpenAi.requires_api_key());
         assert!(Provider::Anthropic.requires_api_key());
+        assert!(!Provider::OpenAiCompatible.requires_api_key());
+    }
+
+    #[test]
+    fn only_openai_compatible_has_no_default_base_url() {
+        assert!(Provider::LmStudio.default_base_url().is_some());
+        assert!(Provider::Ollama.default_base_url().is_some());
+        assert!(Provider::OpenAi.default_base_url().is_some());
+        assert!(Provider::Anthropic.default_base_url().is_some());
+        assert_eq!(Provider::OpenAiCompatible.default_base_url(), None);
+    }
+
+    #[test]
+    fn openai_compatible_is_inference_only() {
+        let p = Provider::OpenAiCompatible;
+        assert_eq!(p.wire_format(), WireFormat::OpenAiCompatible);
+        assert!(!p.supports_model_management());
+        assert!(!p.supports_responses_api());
+        assert!(p.supports_embeddings());
+        assert!(p.supports_text_completion());
     }
 
     #[test]

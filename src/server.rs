@@ -2,11 +2,17 @@
 //! the `rmcp` tool-call dispatch machinery.
 
 use crate::client::ApiClient;
+use crate::config::Profiles;
 use crate::feedback::store::FeedbackStore;
-use crate::tools::{chat, embeddings, feedback, health_check, lms, models, responses, subagent};
+use crate::profiles::ProfileRegistry;
+use crate::tools::{
+    chat, embeddings, feedback, health_check, lms, models, profiles, responses, subagent,
+};
+use crate::types::{ErrorCode, ToolResult};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::{Json, Parameters};
 use rmcp::{tool, tool_handler, tool_router, Peer, RoleServer, ServerHandler};
+use std::future::Future;
 use std::sync::Arc;
 
 /// This server's own repo — the default target for `feedback_submit` /
@@ -15,7 +21,8 @@ const DEFAULT_FEEDBACK_REPO: &str = "ByronScottJones/lmstudio-rs-mcp";
 
 #[derive(Clone)]
 pub struct LmStudioServer {
-    client: Arc<ApiClient>,
+    profiles: Arc<Profiles>,
+    registry: Arc<ProfileRegistry>,
     feedback_store: Arc<FeedbackStore>,
     // Separate from `client`'s HTTP client: this one talks to api.github.com,
     // not LM Studio, and carries no LM Studio base URL/auth token.
@@ -31,9 +38,10 @@ pub struct LmStudioServer {
 }
 
 impl LmStudioServer {
-    pub fn new(client: ApiClient, feedback_store: FeedbackStore) -> Self {
+    pub fn new(profiles: Profiles, feedback_store: FeedbackStore) -> Self {
         Self {
-            client: Arc::new(client),
+            registry: Arc::new(ProfileRegistry::new(&profiles)),
+            profiles: Arc::new(profiles),
             feedback_store: Arc::new(feedback_store),
             github_http: reqwest::Client::new(),
             personas: Arc::new(responses::PersonaCache::new()),
@@ -42,10 +50,29 @@ impl LmStudioServer {
     }
 }
 
+impl LmStudioServer {
+    /// Run `f` against the client for `profile` (the default profile when
+    /// `None`), and stamp the result with the profile that served it. An
+    /// unknown profile is an `INVALID_INPUT` result, not a protocol error.
+    async fn on_profile<T, F, Fut>(&self, profile: Option<&str>, f: F) -> Json<ToolResult<T>>
+    where
+        F: FnOnce(Arc<ApiClient>) -> Fut,
+        Fut: Future<Output = ToolResult<T>>,
+    {
+        match self.registry.resolve(profile) {
+            Ok(client) => {
+                let name = client.profile().to_string();
+                Json(f(client).await.with_profile(name))
+            }
+            Err(msg) => Json(ToolResult::err(msg.clone(), ErrorCode::InvalidInput, msg)),
+        }
+    }
+}
+
 #[tool_router]
 impl LmStudioServer {
     #[tool(
-        description = "Check connectivity to the configured LLM provider (LM Studio, Ollama, OpenAI, or Anthropic — see LLM_PROVIDER)",
+        description = "Check connectivity to a provider profile (LM Studio, Ollama, OpenAI, Anthropic, or an OpenAI-compatible server). Uses the default profile unless `profile` is given — see list_profiles",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -53,8 +80,14 @@ impl LmStudioServer {
             open_world_hint = true
         )
     )]
-    async fn health_check(&self) -> Json<crate::types::ToolResult<health_check::HealthCheckData>> {
-        Json(health_check::health_check(&self.client).await)
+    async fn health_check(
+        &self,
+        Parameters(input): Parameters<profiles::ProfileInput>,
+    ) -> Json<crate::types::ToolResult<health_check::HealthCheckData>> {
+        self.on_profile(input.profile.as_deref(), |c| async move {
+            health_check::health_check(&c).await
+        })
+        .await
     }
 
     #[tool(
@@ -66,8 +99,14 @@ impl LmStudioServer {
             open_world_hint = true
         )
     )]
-    async fn lmstudio_status(&self) -> Json<crate::types::ToolResult<lms::LmStudioStatusData>> {
-        Json(lms::lmstudio_status(&self.client).await)
+    async fn lmstudio_status(
+        &self,
+        Parameters(input): Parameters<profiles::ProfileInput>,
+    ) -> Json<crate::types::ToolResult<lms::LmStudioStatusData>> {
+        self.on_profile(input.profile.as_deref(), |c| async move {
+            lms::lmstudio_status(&c).await
+        })
+        .await
     }
 
     #[tool(
@@ -95,8 +134,14 @@ impl LmStudioServer {
             open_world_hint = true
         )
     )]
-    async fn list_models(&self) -> Json<crate::types::ToolResult<Vec<models::ModelSummary>>> {
-        Json(models::list_models(&self.client).await)
+    async fn list_models(
+        &self,
+        Parameters(input): Parameters<profiles::ProfileInput>,
+    ) -> Json<crate::types::ToolResult<Vec<models::ModelSummary>>> {
+        self.on_profile(input.profile.as_deref(), |c| async move {
+            models::list_models(&c).await
+        })
+        .await
     }
 
     #[tool(
@@ -110,8 +155,12 @@ impl LmStudioServer {
     )]
     async fn list_loaded_models(
         &self,
+        Parameters(input): Parameters<profiles::ProfileInput>,
     ) -> Json<crate::types::ToolResult<Vec<models::LoadedModelSummary>>> {
-        Json(models::list_loaded_models(&self.client).await)
+        self.on_profile(input.profile.as_deref(), |c| async move {
+            models::list_loaded_models(&c).await
+        })
+        .await
     }
 
     #[tool(
@@ -125,8 +174,12 @@ impl LmStudioServer {
     )]
     async fn get_current_model(
         &self,
+        Parameters(input): Parameters<profiles::ProfileInput>,
     ) -> Json<crate::types::ToolResult<Vec<models::LoadedModelSummary>>> {
-        Json(models::get_current_model(&self.client).await)
+        self.on_profile(input.profile.as_deref(), |c| async move {
+            models::get_current_model(&c).await
+        })
+        .await
     }
 
     #[tool(
@@ -142,7 +195,11 @@ impl LmStudioServer {
         &self,
         Parameters(input): Parameters<models::GetModelInfoInput>,
     ) -> Json<crate::types::ToolResult<models::LoadedModelSummary>> {
-        Json(models::get_model_info(&self.client, input).await)
+        let profile = input.profile.clone();
+        self.on_profile(profile.as_deref(), |c| async move {
+            models::get_model_info(&c, input).await
+        })
+        .await
     }
 
     #[tool(
@@ -158,7 +215,11 @@ impl LmStudioServer {
         &self,
         Parameters(input): Parameters<models::LoadModelInput>,
     ) -> Json<crate::types::ToolResult<models::LoadedModelData>> {
-        Json(models::load_model(&self.client, input).await)
+        let profile = input.profile.clone();
+        self.on_profile(profile.as_deref(), |c| async move {
+            models::load_model(&c, input).await
+        })
+        .await
     }
 
     #[tool(
@@ -174,7 +235,11 @@ impl LmStudioServer {
         &self,
         Parameters(input): Parameters<models::UnloadModelInput>,
     ) -> Json<crate::types::ToolResult<()>> {
-        Json(models::unload_model(&self.client, input).await)
+        let profile = input.profile.clone();
+        self.on_profile(profile.as_deref(), |c| async move {
+            models::unload_model(&c, input).await
+        })
+        .await
     }
 
     #[tool(
@@ -190,7 +255,11 @@ impl LmStudioServer {
         &self,
         Parameters(input): Parameters<chat::ChatCompletionInput>,
     ) -> Json<crate::types::ToolResult<chat::ChatCompletionData>> {
-        Json(chat::chat_completion(&self.client, input).await)
+        let profile = input.profile.clone();
+        self.on_profile(profile.as_deref(), |c| async move {
+            chat::chat_completion(&c, input).await
+        })
+        .await
     }
 
     #[tool(
@@ -206,7 +275,11 @@ impl LmStudioServer {
         &self,
         Parameters(input): Parameters<chat::TextCompletionInput>,
     ) -> Json<crate::types::ToolResult<chat::TextCompletionData>> {
-        Json(chat::text_completion(&self.client, input).await)
+        let profile = input.profile.clone();
+        self.on_profile(profile.as_deref(), |c| async move {
+            chat::text_completion(&c, input).await
+        })
+        .await
     }
 
     #[tool(
@@ -222,7 +295,11 @@ impl LmStudioServer {
         &self,
         Parameters(input): Parameters<embeddings::GenerateEmbeddingsInput>,
     ) -> Json<crate::types::ToolResult<embeddings::EmbeddingsData>> {
-        Json(embeddings::generate_embeddings(&self.client, input).await)
+        let profile = input.profile.clone();
+        self.on_profile(profile.as_deref(), |c| async move {
+            embeddings::generate_embeddings(&c, input).await
+        })
+        .await
     }
 
     #[tool(
@@ -238,7 +315,11 @@ impl LmStudioServer {
         &self,
         Parameters(input): Parameters<responses::CreateResponseInput>,
     ) -> Json<crate::types::ToolResult<responses::ResponseData>> {
-        Json(responses::create_response(&self.client, input).await)
+        let profile = input.profile.clone();
+        self.on_profile(profile.as_deref(), |c| async move {
+            responses::create_response(&c, input).await
+        })
+        .await
     }
 
     #[tool(
@@ -254,7 +335,12 @@ impl LmStudioServer {
         &self,
         Parameters(input): Parameters<responses::StartConversationInput>,
     ) -> Json<crate::types::ToolResult<responses::ResponseData>> {
-        Json(responses::start_conversation(&self.client, &self.personas, input).await)
+        let personas = Arc::clone(&self.personas);
+        let profile = input.profile.clone();
+        self.on_profile(profile.as_deref(), |c| async move {
+            responses::start_conversation(&c, &personas, input).await
+        })
+        .await
     }
 
     #[tool(
@@ -270,7 +356,12 @@ impl LmStudioServer {
         &self,
         Parameters(input): Parameters<responses::ContinueConversationInput>,
     ) -> Json<crate::types::ToolResult<responses::ResponseData>> {
-        Json(responses::continue_conversation(&self.client, &self.personas, input).await)
+        let personas = Arc::clone(&self.personas);
+        let profile = input.profile.clone();
+        self.on_profile(profile.as_deref(), |c| async move {
+            responses::continue_conversation(&c, &personas, input).await
+        })
+        .await
     }
 
     #[tool(
@@ -286,7 +377,24 @@ impl LmStudioServer {
         &self,
         Parameters(input): Parameters<subagent::RunSubagentInput>,
     ) -> Json<crate::types::ToolResult<crate::subagent::runner::SubagentReport>> {
-        Json(subagent::run_subagent(&self.client, input).await)
+        let profile = input.profile.clone();
+        self.on_profile(profile.as_deref(), |c| async move {
+            subagent::run_subagent(&c, input).await
+        })
+        .await
+    }
+
+    #[tool(
+        description = "List the configured provider profiles — name, provider, base URL, whether it is the default, whether an API key is set (never the key), and which capabilities its provider supports. Pass a profile's name as `profile` to any other provider tool to run it against that backend; omit `profile` to use the default. Makes no network calls — use health_check to test reachability",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn list_profiles(&self) -> Json<ToolResult<Vec<profiles::ProfileSummary>>> {
+        Json(profiles::list_profiles(&self.profiles))
     }
 
     #[tool(
@@ -422,6 +530,6 @@ impl LmStudioServer {
 #[tool_handler(
     name = "lmstudio-rs-mcp",
     version = "0.1.0",
-    instructions = "Bridge to an LLM provider — LM Studio or Ollama (local), or OpenAI/Anthropic (cloud, require an API key) — selected via LLM_PROVIDER: inference (chat, text completion, embeddings, stateful conversations where supported), model management on local providers (list, load, unload), delegating work to a model as a sandboxed subagent (run_subagent), and filing feedback about this server itself as GitHub issues (feedback_*). Run health_check first to confirm the configured provider is reachable."
+    instructions = "Bridge to one or more LLM providers — LM Studio, Ollama, or any OpenAI-compatible server (local), or OpenAI/Anthropic (cloud, require an API key) — configured as named profiles (see list_profiles). Every provider tool takes an optional `profile`; omit it to use the default. Inference (chat, text completion, embeddings, stateful conversations where supported), model management on local providers (list, load, unload), delegating work to a model as a sandboxed subagent (run_subagent), and filing feedback about this server itself as GitHub issues (feedback_*). Run list_profiles to see the backends, then health_check to confirm one is reachable."
 )]
 impl ServerHandler for LmStudioServer {}

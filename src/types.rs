@@ -38,6 +38,9 @@ pub struct ToolError {
 pub struct ToolResult<T> {
     pub success: bool,
     pub message: String,
+    /// The provider profile that served the call, when the tool talks to one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<T>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -49,6 +52,7 @@ impl<T> ToolResult<T> {
         Self {
             success: true,
             message: message.into(),
+            profile: None,
             data: Some(data),
             error: None,
         }
@@ -59,9 +63,16 @@ impl<T> ToolResult<T> {
         Self {
             success: true,
             message: message.into(),
+            profile: None,
             data: None,
             error: None,
         }
+    }
+
+    /// Record which provider profile produced this result.
+    pub fn with_profile(mut self, profile: impl Into<String>) -> Self {
+        self.profile = Some(profile.into());
+        self
     }
 
     pub fn err(message: impl Into<String>, code: ErrorCode, detail: impl Into<String>) -> Self {
@@ -69,6 +80,7 @@ impl<T> ToolResult<T> {
         Self {
             success: false,
             message: message.clone(),
+            profile: None,
             data: None,
             error: Some(ToolError {
                 code,

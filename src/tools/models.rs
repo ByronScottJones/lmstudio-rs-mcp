@@ -247,6 +247,10 @@ pub async fn get_current_model(client: &ApiClient) -> ToolResult<Vec<LoadedModel
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GetModelInfoInput {
+    /// Provider profile to use (see `list_profiles`). Defaults to the
+    /// server's default profile.
+    #[serde(default)]
+    pub profile: Option<String>,
     /// The loaded model instance identifier to get information about (see `list_loaded_models`).
     pub identifier: String,
 }
@@ -287,6 +291,10 @@ pub async fn get_model_info(
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct LoadModelInput {
+    /// Provider profile to use (see `list_profiles`). Defaults to the
+    /// server's default profile.
+    #[serde(default)]
+    pub profile: Option<String>,
     /// The model key to load (e.g. `"llama-3.2-3b-instruct"`, see `list_models`).
     pub model: String,
     /// Context window size in tokens.
@@ -361,6 +369,10 @@ pub async fn load_model(client: &ApiClient, input: LoadModelInput) -> ToolResult
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct UnloadModelInput {
+    /// Provider profile to use (see `list_profiles`). Defaults to the
+    /// server's default profile.
+    #[serde(default)]
+    pub profile: Option<String>,
     /// The loaded model instance identifier to unload (see `list_loaded_models`).
     pub identifier: String,
 }
