@@ -29,6 +29,11 @@ pub enum Provider {
     /// server, oMLX, ...). No model management, no `/v1/responses`, no
     /// default URL, and the API key is optional.
     OpenAiCompatible,
+    /// [oMLX](https://github.com/jundot/omlx) (MLX models on Apple
+    /// silicon). OpenAI-compatible inference plus its own `/v1/models/...`
+    /// routes to report, load, and unload models. No default URL; the API
+    /// key is optional.
+    Omlx,
 }
 
 impl Provider {
@@ -39,6 +44,7 @@ impl Provider {
             "openai" | "open-ai" => Some(Provider::OpenAi),
             "anthropic" | "claude" => Some(Provider::Anthropic),
             "openai-compatible" | "openai_compatible" => Some(Provider::OpenAiCompatible),
+            "omlx" => Some(Provider::Omlx),
             _ => None,
         }
     }
@@ -50,6 +56,7 @@ impl Provider {
             Provider::OpenAi => "openai",
             Provider::Anthropic => "anthropic",
             Provider::OpenAiCompatible => "openai-compatible",
+            Provider::Omlx => "omlx",
         }
     }
 
@@ -61,7 +68,7 @@ impl Provider {
             Provider::Ollama => Some("http://127.0.0.1:11434"),
             Provider::OpenAi => Some("https://api.openai.com"),
             Provider::Anthropic => Some("https://api.anthropic.com"),
-            Provider::OpenAiCompatible => None,
+            Provider::OpenAiCompatible | Provider::Omlx => None,
         }
     }
 
@@ -85,7 +92,7 @@ impl Provider {
     /// there's nothing to load. Gates `load_model`/`unload_model`/
     /// `get_model_info`/`get_current_model`/`list_loaded_models`.
     pub fn supports_model_management(self) -> bool {
-        matches!(self, Provider::LmStudio | Provider::Ollama)
+        matches!(self, Provider::LmStudio | Provider::Ollama | Provider::Omlx)
     }
 
     /// Whether this provider has a `/v1/responses`-style stateful
@@ -148,12 +155,25 @@ mod tests {
     }
 
     #[test]
-    fn only_openai_compatible_has_no_default_base_url() {
+    fn only_openai_compatible_and_omlx_have_no_default_base_url() {
         assert!(Provider::LmStudio.default_base_url().is_some());
         assert!(Provider::Ollama.default_base_url().is_some());
         assert!(Provider::OpenAi.default_base_url().is_some());
         assert!(Provider::Anthropic.default_base_url().is_some());
         assert_eq!(Provider::OpenAiCompatible.default_base_url(), None);
+        assert_eq!(Provider::Omlx.default_base_url(), None);
+    }
+
+    #[test]
+    fn omlx_manages_models_but_has_no_responses_api() {
+        let p = Provider::Omlx;
+        assert_eq!(Provider::parse("oMLX"), Some(p));
+        assert_eq!(p.wire_format(), WireFormat::OpenAiCompatible);
+        assert!(!p.requires_api_key());
+        assert!(p.supports_model_management());
+        assert!(!p.supports_responses_api());
+        assert!(p.supports_embeddings());
+        assert!(p.supports_text_completion());
     }
 
     #[test]
@@ -178,11 +198,12 @@ mod tests {
     }
 
     #[test]
-    fn only_local_providers_support_model_management() {
+    fn only_local_providers_with_a_native_api_support_model_management() {
         assert!(Provider::LmStudio.supports_model_management());
         assert!(Provider::Ollama.supports_model_management());
         assert!(!Provider::OpenAi.supports_model_management());
         assert!(!Provider::Anthropic.supports_model_management());
+        assert!(!Provider::OpenAiCompatible.supports_model_management());
     }
 
     #[test]

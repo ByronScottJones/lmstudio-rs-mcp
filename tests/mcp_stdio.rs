@@ -436,3 +436,147 @@ fn an_invalid_profiles_file_stops_the_server_before_serving() {
         .expect("spawn server binary");
     assert!(!status.success());
 }
+
+/// A minimal stand-in for oMLX's model routes. Requires `Bearer test-key`
+/// and tracks whether model `m1` is loaded. Returns its base URL.
+fn spawn_mock_omlx() -> String {
+    use std::io::Read;
+    use std::net::TcpListener;
+    use std::sync::{Arc, Mutex};
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock oMLX");
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let loaded = Arc::new(Mutex::new(false));
+    std::thread::spawn(move || {
+        for stream in listener.incoming().map_while(Result::ok) {
+            let loaded = Arc::clone(&loaded);
+            std::thread::spawn(move || {
+                let mut stream = stream;
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 1024];
+                while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match stream.read(&mut chunk) {
+                        Ok(0) | Err(_) => return,
+                        Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                    }
+                }
+                let head = String::from_utf8_lossy(&buf).to_string();
+                let mut lines = head.lines();
+                let request_line = lines.next().unwrap_or("").to_string();
+                let authorized = head
+                    .lines()
+                    .any(|l| l.eq_ignore_ascii_case("authorization: Bearer test-key"));
+                let (status, body) = if !authorized {
+                    (401, json!({ "error": { "message": "bad key" } }))
+                } else {
+                    let mut state = loaded.lock().unwrap();
+                    match request_line.as_str() {
+                        l if l.starts_with("GET /v1/models/status ") => (
+                            200,
+                            json!({ "models": [
+                                { "id": "m1", "loaded": *state, "is_loading": false,
+                                  "estimated_size": 1000, "model_context_length": 4096,
+                                  "model_type": "llm", "config_model_type": "qwen3" },
+                                { "id": "m2", "loaded": false, "is_loading": false }
+                            ] }),
+                        ),
+                        l if l.starts_with("POST /v1/models/m1/load ") => {
+                            *state = true;
+                            (200, json!({ "status": "ok", "model_id": "m1" }))
+                        }
+                        l if l.starts_with("POST /v1/models/m1/unload ") => {
+                            if *state {
+                                *state = false;
+                                (200, json!({ "status": "ok", "model_id": "m1" }))
+                            } else {
+                                (
+                                    400,
+                                    json!({ "error": { "message": "Model not loaded: m1" } }),
+                                )
+                            }
+                        }
+                        l if l.contains("/load ") || l.contains("/unload ") => {
+                            (404, json!({ "error": { "message": "Model not found" } }))
+                        }
+                        _ => (404, json!({ "error": { "message": "no route" } })),
+                    }
+                };
+                let body = body.to_string();
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            });
+        }
+    });
+    base
+}
+
+#[test]
+fn omlx_profile_lists_loads_and_unloads_models() {
+    let base = spawn_mock_omlx();
+    let dir = std::env::temp_dir().join(format!("lmstudio-rs-mcp-omlx-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("profiles.toml");
+    std::fs::write(
+        &file,
+        format!(
+            "[profiles.omlx]\nprovider = \"omlx\"\nbase_url = \"{base}\"\n\
+             api_key_env = \"OMLX_TEST_KEY\"\n"
+        ),
+    )
+    .unwrap();
+    let mut server = Server::start_with(
+        &[
+            ("LLM_PROFILES_FILE", file.to_str().unwrap()),
+            ("OMLX_TEST_KEY", "test-key"),
+        ],
+        |_| {},
+    );
+
+    let listed = server.call("list_profiles", json!({}));
+    assert_eq!(listed["data"][0]["provider"], json!("omlx"), "{listed}");
+    assert_eq!(
+        listed["data"][0]["capabilities"]["model_management"],
+        json!(true)
+    );
+
+    // Nothing loaded yet; the library has both models, with detail mapped.
+    let loaded = server.call("list_loaded_models", json!({}));
+    assert_eq!(loaded["success"], json!(true), "{loaded}");
+    assert_eq!(loaded["data"].as_array().unwrap().len(), 0, "{loaded}");
+    let library = server.call("list_models", json!({}));
+    assert_eq!(library["data"].as_array().unwrap().len(), 2, "{library}");
+    assert_eq!(library["data"][0]["architecture"], json!("qwen3"));
+
+    // Load, with a per-load option oMLX cannot apply: it loads and says so.
+    let load = server.call(
+        "load_model",
+        json!({ "model": "m1", "context_length": 8192 }),
+    );
+    assert_eq!(load["success"], json!(true), "{load}");
+    assert_eq!(load["data"]["instance_id"], json!("m1"));
+    let status = load["data"]["status"].as_str().unwrap();
+    assert!(status.contains("context_length not applied"), "{status}");
+    assert!(load["data"]["load_time_seconds"].is_number());
+
+    let loaded = server.call("list_loaded_models", json!({}));
+    assert_eq!(loaded["data"][0]["identifier"], json!("m1"), "{loaded}");
+    let current = server.call("get_current_model", json!({}));
+    assert_eq!(current["data"].as_array().unwrap().len(), 1, "{current}");
+
+    let unload = server.call("unload_model", json!({ "identifier": "m1" }));
+    assert_eq!(unload["success"], json!(true), "{unload}");
+    let loaded = server.call("list_loaded_models", json!({}));
+    assert_eq!(loaded["data"].as_array().unwrap().len(), 0, "{loaded}");
+
+    // Unloading again is MODEL_NOT_LOADED, not an opaque failure.
+    let again = server.call("unload_model", json!({ "identifier": "m1" }));
+    assert_eq!(error_code(&again), "MODEL_NOT_LOADED", "{again}");
+
+    // An unknown model fails to load with LOAD_FAILED.
+    let unknown = server.call("load_model", json!({ "model": "m9" }));
+    assert_eq!(error_code(&unknown), "LOAD_FAILED", "{unknown}");
+}

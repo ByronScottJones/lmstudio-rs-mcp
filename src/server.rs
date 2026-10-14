@@ -72,7 +72,7 @@ impl LmStudioServer {
 #[tool_router]
 impl LmStudioServer {
     #[tool(
-        description = "Check connectivity to a provider profile (LM Studio, Ollama, OpenAI, Anthropic, or an OpenAI-compatible server). Uses the default profile unless `profile` is given — see list_profiles",
+        description = "Check connectivity to a provider profile (LM Studio, Ollama, oMLX, OpenAI, Anthropic, or an OpenAI-compatible server). Uses the default profile unless `profile` is given — see list_profiles",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -126,7 +126,7 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "List models available from the configured provider — the local library for LM Studio/Ollama, or every model the API key can use for OpenAI/Anthropic",
+        description = "List models available from the configured provider — the local library for LM Studio/Ollama/oMLX, or every model the API key can use for OpenAI/Anthropic",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -145,7 +145,7 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "List all currently loaded model instances. Only meaningful for LM Studio/Ollama — cloud providers have no loading concept and return an empty list",
+        description = "List all currently loaded model instances. Only meaningful for LM Studio/Ollama/oMLX — cloud providers have no loading concept and return an empty list",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -164,7 +164,7 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "Identify the currently loaded model (or models, if more than one is loaded). Only meaningful for LM Studio/Ollama",
+        description = "Identify the currently loaded model (or models, if more than one is loaded). Only meaningful for LM Studio/Ollama/oMLX",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -183,7 +183,7 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "Get detailed information about a specific loaded model instance. Only meaningful for LM Studio/Ollama",
+        description = "Get detailed information about a specific loaded model instance. Only meaningful for LM Studio/Ollama/oMLX",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -203,7 +203,7 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "Load a model into memory. Only supported by LM Studio/Ollama — cloud providers have nothing to load",
+        description = "Load a model into memory. Only supported by LM Studio/Ollama/oMLX — cloud providers have nothing to load",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -223,7 +223,7 @@ impl LmStudioServer {
     }
 
     #[tool(
-        description = "Unload a model instance from memory. Only supported by LM Studio/Ollama",
+        description = "Unload a model instance from memory. Only supported by LM Studio/Ollama/oMLX",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -530,6 +530,6 @@ impl LmStudioServer {
 #[tool_handler(
     name = "lmstudio-rs-mcp",
     version = "0.1.0",
-    instructions = "Bridge to one or more LLM providers — LM Studio, Ollama, or any OpenAI-compatible server (local), or OpenAI/Anthropic (cloud, require an API key) — configured as named profiles (see list_profiles). Every provider tool takes an optional `profile`; omit it to use the default. Inference (chat, text completion, embeddings, stateful conversations where supported), model management on local providers (list, load, unload), delegating work to a model as a sandboxed subagent (run_subagent), and filing feedback about this server itself as GitHub issues (feedback_*). Run list_profiles to see the backends, then health_check to confirm one is reachable."
+    instructions = "Bridge to one or more LLM providers — LM Studio, Ollama, oMLX, or any OpenAI-compatible server (local), or OpenAI/Anthropic (cloud, require an API key) — configured as named profiles (see list_profiles). Every provider tool takes an optional `profile`; omit it to use the default. Inference (chat, text completion, embeddings, stateful conversations where supported), model management on local providers (list, load, unload), delegating work to a model as a sandboxed subagent (run_subagent), and filing feedback about this server itself as GitHub issues (feedback_*). Run list_profiles to see the backends, then health_check to confirm one is reachable."
 )]
 impl ServerHandler for LmStudioServer {}

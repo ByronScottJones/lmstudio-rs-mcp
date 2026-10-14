@@ -29,7 +29,7 @@ pub struct ChatCompletionInput {
     #[serde(default)]
     pub max_tokens: Option<u32>,
     /// Which model to use. Auto-detected if exactly one model is currently
-    /// loaded (LM Studio/Ollama); required for providers with no
+    /// loaded (LM Studio/Ollama/oMLX); required for providers with no
     /// loaded-model concept (OpenAI/Anthropic).
     #[serde(default)]
     pub model: Option<String>,
@@ -176,7 +176,7 @@ pub struct TextCompletionInput {
     #[serde(default)]
     pub stop_sequences: Option<Vec<String>>,
     /// Which model to use. Auto-detected if exactly one model is currently
-    /// loaded (LM Studio/Ollama); required for providers with no
+    /// loaded (LM Studio/Ollama/oMLX); required for providers with no
     /// loaded-model concept (OpenAI).
     #[serde(default)]
     pub model: Option<String>,

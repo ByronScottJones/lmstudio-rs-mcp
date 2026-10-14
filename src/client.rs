@@ -154,6 +154,54 @@ pub mod model {
     }
 }
 
+/// Translate oMLX's `GET /v1/models/status` into the shared model listing.
+/// A model counts as loaded only when `loaded` is true (a model that is
+/// still `is_loading` is not usable yet). Tolerant by design: entries
+/// without an `id` are skipped and every other field is optional.
+fn omlx_status_to_models(status: &Value) -> model::ModelsListResponse {
+    let models = status
+        .get("models")
+        .and_then(Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|m| {
+                    let id = m.get("id")?.as_str()?.to_string();
+                    let context = m.get("model_context_length").and_then(Value::as_u64);
+                    let loaded = m.get("loaded").and_then(Value::as_bool).unwrap_or(false);
+                    Some(model::ModelEntry {
+                        key: id.clone(),
+                        display_name: Some(id.clone()),
+                        architecture: m
+                            .get("config_model_type")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        capabilities: Some(model::Capabilities {
+                            vision: m.get("model_type").and_then(Value::as_str) == Some("vlm"),
+                            ..Default::default()
+                        }),
+                        size_bytes: m.get("estimated_size").and_then(Value::as_u64),
+                        max_context_length: context,
+                        loaded_instances: if loaded {
+                            vec![model::LoadedInstance {
+                                id,
+                                config: Some(model::LoadedInstanceConfig {
+                                    context_length: context,
+                                    ..Default::default()
+                                }),
+                            }]
+                        } else {
+                            vec![]
+                        },
+                        ..Default::default()
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    model::ModelsListResponse { models }
+}
+
 pub struct ApiClient {
     http: HttpClient,
     /// Name of the profile this client was built from.
@@ -202,8 +250,14 @@ impl ApiClient {
         match self.provider {
             Provider::LmStudio => format!("{}/api/v1", self.base_url),
             Provider::Ollama => format!("{}/api", self.base_url),
-            Provider::OpenAi | Provider::Anthropic | Provider::OpenAiCompatible => {
-                unreachable!("{} has no native model-management API", self.provider)
+            Provider::OpenAi
+            | Provider::Anthropic
+            | Provider::OpenAiCompatible
+            | Provider::Omlx => {
+                unreachable!(
+                    "{} has no `/api` native model-management root",
+                    self.provider
+                )
             }
         }
     }
@@ -322,6 +376,11 @@ impl ApiClient {
                 self.get_json(&url, DEFAULT_TIMEOUT).await
             }
             Provider::Ollama => self.list_models_ollama().await,
+            Provider::Omlx => {
+                let url = self.omlx_url(&["v1", "models", "status"])?;
+                let status: Value = self.get_json(&url, DEFAULT_TIMEOUT).await?;
+                Ok(omlx_status_to_models(&status))
+            }
             Provider::OpenAi | Provider::Anthropic | Provider::OpenAiCompatible => {
                 self.list_models_v1().await
             }
@@ -469,10 +528,74 @@ impl ApiClient {
                     .await
             }
             Provider::Ollama => self.load_model_ollama(body).await,
+            Provider::Omlx => self.load_model_omlx(body).await,
             Provider::OpenAi | Provider::Anthropic | Provider::OpenAiCompatible => {
                 unreachable!("{} has no model management API", self.provider)
             }
         }
+    }
+
+    /// oMLX loads with `POST /v1/models/{id}/load`, which blocks until the
+    /// model is in memory and takes no body. LM Studio's per-load options
+    /// (`context_length`, `eval_batch_size`, `flash_attention`) have no
+    /// per-request equivalent: oMLX keeps them as saved per-model settings
+    /// behind its admin API, which an API key cannot reach. Like Ollama's
+    /// `flash_attention`, a requested option is therefore reported back in
+    /// `status` rather than silently dropped. The server reports no timing,
+    /// so load time is measured here.
+    async fn load_model_omlx(&self, body: Value) -> Result<model::LoadModelResponse, ClientError> {
+        let model_name = body
+            .get("model")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let url = self.omlx_url(&["v1", "models", model_name, "load"])?;
+        let started = std::time::Instant::now();
+        let resp: Value = self
+            .post_json(
+                &url,
+                &serde_json::json!({}),
+                crate::types::LOAD_MODEL_TIMEOUT,
+            )
+            .await?;
+        let ignored: Vec<&str> = ["context_length", "eval_batch_size", "flash_attention"]
+            .into_iter()
+            .filter(|k| body.get(*k).is_some_and(|v| !v.is_null()))
+            .collect();
+        let mut status = resp
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("loaded")
+            .to_string();
+        if !ignored.is_empty() {
+            status.push_str(&format!(
+                " (note: {} not applied — oMLX keeps these as saved per-model settings, \
+                 not per-load options)",
+                ignored.join(", ")
+            ));
+        }
+        Ok(model::LoadModelResponse {
+            instance_id: Some(model_name.to_string()),
+            load_time_seconds: Some(started.elapsed().as_secs_f64()),
+            status: Some(status),
+            ..Default::default()
+        })
+    }
+
+    /// Build an oMLX URL from path segments, percent-encoding each one (a
+    /// model id may contain characters that are not path-safe).
+    fn omlx_url(&self, segments: &[&str]) -> Result<String, ClientError> {
+        let mut url = url::Url::parse(&self.base_url).map_err(|e| ClientError::Status {
+            status: 0,
+            body: format!("invalid base URL '{}': {e}", self.base_url),
+        })?;
+        url.path_segments_mut()
+            .map_err(|()| ClientError::Status {
+                status: 0,
+                body: format!("base URL '{}' cannot carry a path", self.base_url),
+            })?
+            .pop_if_empty()
+            .extend(segments);
+        Ok(url.into())
     }
 
     /// Ollama has no explicit "load" call — sending an empty-prompt,
@@ -576,6 +699,16 @@ impl ApiClient {
                     "keep_alive": 0,
                 });
                 let _resp: Value = self.post_json(&url, &body, DEFAULT_TIMEOUT).await?;
+                Ok(model::UnloadModelResponse {
+                    instance_id: Some(instance_id.to_string()),
+                    ..Default::default()
+                })
+            }
+            Provider::Omlx => {
+                let url = self.omlx_url(&["v1", "models", instance_id, "unload"])?;
+                let _resp: Value = self
+                    .post_json(&url, &serde_json::json!({}), DEFAULT_TIMEOUT)
+                    .await?;
                 Ok(model::UnloadModelResponse {
                     instance_id: Some(instance_id.to_string()),
                     ..Default::default()
@@ -1168,6 +1301,87 @@ fn merge_responses_stream(events: &[Value], fallback_model: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Trimmed from a real oMLX `GET /v1/models/status` response.
+    const OMLX_STATUS: &str = r#"{
+        "model_count": 3, "loaded_count": 1,
+        "models": [
+            {"id": "Qwen3.8-27B-MLX-8bit", "loaded": true, "is_loading": false,
+             "estimated_size": 30976279174, "model_context_length": 262144,
+             "model_type": "vlm", "config_model_type": "qwen3_5"},
+            {"id": "gemma-4-E4B-it-MLX-8bit", "loaded": false, "is_loading": false,
+             "estimated_size": 8000000000},
+            {"id": "warming-up", "loaded": false, "is_loading": true},
+            {"no_id": true}
+        ]
+    }"#;
+
+    #[test]
+    fn omlx_status_maps_loaded_models_to_instances() {
+        let status: Value = serde_json::from_str(OMLX_STATUS).unwrap();
+        let list = omlx_status_to_models(&status);
+        assert_eq!(list.models.len(), 3, "the entry with no id is skipped");
+        let qwen = &list.models[0];
+        assert_eq!(qwen.key, "Qwen3.8-27B-MLX-8bit");
+        assert_eq!(qwen.size_bytes, Some(30_976_279_174));
+        assert_eq!(qwen.max_context_length, Some(262_144));
+        assert_eq!(qwen.architecture.as_deref(), Some("qwen3_5"));
+        assert!(qwen.capabilities.as_ref().unwrap().vision);
+        assert!(!list.models[1].capabilities.as_ref().unwrap().vision);
+        assert_eq!(qwen.loaded_instances.len(), 1);
+        assert_eq!(qwen.loaded_instances[0].id, "Qwen3.8-27B-MLX-8bit");
+        assert_eq!(
+            qwen.loaded_instances[0]
+                .config
+                .as_ref()
+                .and_then(|c| c.context_length),
+            Some(262_144)
+        );
+        assert!(list.models[1].loaded_instances.is_empty());
+        assert!(
+            list.models[2].loaded_instances.is_empty(),
+            "a model that is still loading is not usable yet"
+        );
+    }
+
+    #[test]
+    fn omlx_status_tolerates_an_unexpected_shape() {
+        assert!(omlx_status_to_models(&serde_json::json!({}))
+            .models
+            .is_empty());
+        assert!(omlx_status_to_models(&serde_json::json!([1, 2]))
+            .models
+            .is_empty());
+    }
+
+    fn omlx_client(base: &str) -> ApiClient {
+        ApiClient::new(&crate::config::Config {
+            name: "t".into(),
+            provider: Provider::Omlx,
+            base_url: base.into(),
+            api_key: None,
+        })
+    }
+
+    #[test]
+    fn omlx_urls_percent_encode_the_model_id() {
+        let c = omlx_client("http://127.0.0.1:8000");
+        assert_eq!(
+            c.omlx_url(&["v1", "models", "status"]).unwrap(),
+            "http://127.0.0.1:8000/v1/models/status"
+        );
+        assert_eq!(
+            c.omlx_url(&["v1", "models", "org/my model", "load"])
+                .unwrap(),
+            "http://127.0.0.1:8000/v1/models/org%2Fmy%20model/load"
+        );
+        // A base URL that already carries a path prefix keeps it.
+        let prefixed = omlx_client("http://box/omlx/");
+        assert_eq!(
+            prefixed.omlx_url(&["v1", "models", "m", "unload"]).unwrap(),
+            "http://box/omlx/v1/models/m/unload"
+        );
+    }
 
     #[test]
     fn merges_chat_stream_deltas_including_reasoning_content() {

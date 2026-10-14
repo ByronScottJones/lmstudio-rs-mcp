@@ -7,7 +7,7 @@ cloud — inference **and**, where the provider supports it, model management,
 in one Rust binary that runs natively on macOS, Windows, and Linux.
 
 A server instance holds one or more named **profiles**, each bound to one
-provider (LM Studio, Ollama, OpenAI, Anthropic, or any OpenAI-compatible
+provider (LM Studio, Ollama, oMLX, OpenAI, Anthropic, or any OpenAI-compatible
 server such as vLLM or oMLX), so you can use several backends at once —
 every provider tool takes an optional `profile` argument. With no profiles
 file, `LLM_PROVIDER` defines a single profile named `default` (defaults to
@@ -45,12 +45,12 @@ below need to know which provider is actually active.
 | `health_check` | all | Verify a profile's provider is reachable |
 | `lmstudio_status` | LM Studio | Check whether LM Studio is installed (and its version), the `lms` CLI is available (and its build commit), and the REST API is reachable — each reported independently |
 | `lms_cli` | LM Studio | Run an `lms` CLI command the REST API lacks: server start/stop/status, runtime engines, LM Link, `get` (download), `import`, `clone`, `whoami`/`logout` (see below) |
-| `list_models` | all | List models available from the configured provider — the local library for LM Studio/Ollama, or every model the API key can use for OpenAI/Anthropic |
-| `list_loaded_models` | LM Studio, Ollama | List currently loaded model instances |
-| `get_current_model` | LM Studio, Ollama | Identify the loaded model |
-| `get_model_info` | LM Studio, Ollama | Detailed info for one loaded instance |
-| `load_model` | LM Studio, Ollama | Load a model into memory |
-| `unload_model` | LM Studio, Ollama | Unload a model instance |
+| `list_models` | all | List models available from the configured provider — the local library for LM Studio/Ollama/oMLX, or every model the API key can use for OpenAI/Anthropic |
+| `list_loaded_models` | LM Studio, Ollama, oMLX | List currently loaded model instances |
+| `get_current_model` | LM Studio, Ollama, oMLX | Identify the loaded model |
+| `get_model_info` | LM Studio, Ollama, oMLX | Detailed info for one loaded instance |
+| `load_model` | LM Studio, Ollama, oMLX | Load a model into memory. On oMLX `context_length`, `eval_batch_size` and `flash_attention` are not applied (reported in `status`) |
+| `unload_model` | LM Studio, Ollama, oMLX | Unload a model instance |
 | `chat_completion` | all | Chat-formatted completion |
 | `text_completion` | LM Studio, Ollama, OpenAI | Raw/non-chat completion (faster, for code/continuation) |
 | `generate_embeddings` | all except Anthropic | Vector embeddings for RAG/semantic search |
@@ -254,8 +254,13 @@ provider = "lmstudio"
 provider = "ollama"
 
 [profiles.omlx]
-provider = "openai-compatible"      # vLLM, llama.cpp server, oMLX, ...
+provider = "omlx"                   # oMLX: inference plus list/load/unload models
 base_url = "http://127.0.0.1:8000"
+api_key_env = "OMLX_API_KEY"
+
+[profiles.vllm]
+provider = "openai-compatible"      # vLLM, llama.cpp server, ...: inference only
+base_url = "http://127.0.0.1:8001"
 
 [profiles.claude]
 provider = "anthropic"
@@ -266,7 +271,7 @@ Then pass `profile` to any provider tool — for example
 `chat_completion` with `{"profile": "ollama", "prompt": "..."}` — or omit it
 to use the default. Call `list_profiles` to see what is configured and what
 each provider supports. Results from provider tools include the `profile`
-that served them. `base_url` is optional except for `openai-compatible`;
+that served them. `base_url` is optional except for `openai-compatible` and `omlx`;
 `openai` and `anthropic` need `api_key_env`. An invalid file (unknown
 provider, bad URL, several profiles with no default) stops startup with an
 error naming the profile. A profile whose key variable is unset is skipped
@@ -280,8 +285,8 @@ Read from the environment at connect time:
 | Variable | Default | Description |
 |----------|---------|--------------|
 | `LLM_PROFILES_FILE` | _(auto-detected)_ | Path to a profiles file (see above). Must exist if set. |
-| `LLM_PROVIDER` | `lmstudio` | One of `lmstudio`, `ollama`, `openai`, `anthropic` (`claude` also accepted), `openai-compatible`. Unknown values fall back to `lmstudio` with a warning. |
-| `LLM_BASE_URL` | provider default | Full `scheme://host:port` override. Provider defaults: `http://127.0.0.1:1234` (lmstudio), `http://127.0.0.1:11434` (ollama), `https://api.openai.com` (openai), `https://api.anthropic.com` (anthropic). `openai-compatible` has no default — `LLM_BASE_URL` is required. |
+| `LLM_PROVIDER` | `lmstudio` | One of `lmstudio`, `ollama`, `openai`, `anthropic` (`claude` also accepted), `openai-compatible`, `omlx`. Unknown values fall back to `lmstudio` with a warning. |
+| `LLM_BASE_URL` | provider default | Full `scheme://host:port` override. Provider defaults: `http://127.0.0.1:1234` (lmstudio), `http://127.0.0.1:11434` (ollama), `https://api.openai.com` (openai), `https://api.anthropic.com` (anthropic). `openai-compatible` and `omlx` have no default — `LLM_BASE_URL` is required. |
 | `LLM_API_KEY` | _(none)_ | API key / bearer token. **Required** for `openai` and `anthropic` (the server refuses to start without one); optional for `lmstudio`/`ollama`, if you've turned on local API auth. |
 | `LMS_PATH` | _(auto-detected)_ | Full path to the `lms` binary, for `lmstudio_status`/`lms_cli`. Otherwise searched on `PATH`, then `~/.lmstudio/bin`. |
 | `GITHUB_TOKEN` | _(none)_ | Used by `feedback_check_duplicates`/`feedback_submit` for a private repo, if no `token` argument is passed and `gh` isn't already authenticated. |

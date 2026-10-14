@@ -60,7 +60,7 @@ model backend through tools:
 
 - **Inference:** chat, raw text completion, embeddings, and stateful
   multi-turn conversations.
-- **Model management** (LM Studio and Ollama): list, load, unload, inspect.
+- **Model management** (LM Studio, Ollama, and oMLX): list, load, unload, inspect.
 - **Delegation:** hand a well-scoped task to a model acting as a sandboxed
   subagent with its own file and shell tools.
 - **LM Studio environment:** detect the installation, the `lms` CLI, and the
@@ -121,7 +121,7 @@ failure `data` is absent and `error` is `{ code, message }`.
   (for example `provider_tools_report_connection_failures_in_the_envelope`).
 
 **FR-2 Provider selection.** A profile's provider is `lmstudio`, `ollama`,
-`openai`, `anthropic`, or `openai-compatible`. In the environment-only form,
+`openai`, `anthropic`, `openai-compatible`, or `omlx`. In the environment-only form,
 `LLM_PROVIDER` selects it (aliases: `lm-studio`, `lm_studio`, `open-ai`,
 `claude`). Unknown values warn and fall back to `lmstudio`. `openai` and
 `anthropic` refuse to start without an API key.
@@ -145,7 +145,7 @@ answers, with `CONNECTION_FAILED` when it does not.
 
 - Verified by: `provider_tools_report_connection_failures_in_the_envelope`.
 
-**FR-5 Model management.** For LM Studio and Ollama, the server can list the
+**FR-5 Model management.** For LM Studio, Ollama, and oMLX, the server can list the
 library, list loaded instances, identify the current model, describe one
 instance, load, and unload. Identifier and library key are distinct: tools
 that route by instance use the instance identifier.
@@ -341,11 +341,11 @@ this table; update both together.
 | `lmstudio_status` | R - I O | `profile` | all (API check LM Studio only) |
 | `lms_cli` | - D - O | `*command`, `args`, `timeout_seconds` | LM Studio host |
 | `list_models` | R - I O | `profile` | all |
-| `list_loaded_models` | R - I O | `profile` | LM Studio, Ollama |
-| `get_current_model` | R - I O | `profile` | LM Studio, Ollama |
-| `get_model_info` | R - I O | `*identifier` | LM Studio, Ollama |
-| `load_model` | - - - O | `*model`, `context_length`, `flash_attention`, `eval_batch_size` | LM Studio, Ollama |
-| `unload_model` | - D - O | `*identifier` | LM Studio, Ollama |
+| `list_loaded_models` | R - I O | `profile` | LM Studio, Ollama, oMLX |
+| `get_current_model` | R - I O | `profile` | LM Studio, Ollama, oMLX |
+| `get_model_info` | R - I O | `*identifier` | LM Studio, Ollama, oMLX |
+| `load_model` | - - - O | `*model`, `context_length`, `flash_attention`, `eval_batch_size` | LM Studio, Ollama, oMLX (options not applied; see 5.4) |
+| `unload_model` | - D - O | `*identifier` | LM Studio, Ollama, oMLX |
 | `chat_completion` | R - - O | `*prompt`, `system_prompt`, `model`, `temperature`, `max_tokens` | all |
 | `text_completion` | R - - O | `*prompt`, `model`, `temperature`, `max_tokens`, `stop_sequences` | all but Anthropic |
 | `generate_embeddings` | R - - O | `*text`, `model` | all but Anthropic |
@@ -377,15 +377,31 @@ Annotation rationale where it is a judgment call:
 
 Source of truth: `src/providers.rs`.
 
-| Capability | LM Studio | Ollama | OpenAI | Anthropic | OpenAI-compatible |
-| --- | --- | --- | --- | --- | --- |
-| Default base URL | `http://127.0.0.1:1234` | `http://127.0.0.1:11434` | `https://api.openai.com` | `https://api.anthropic.com` | none (`base_url` required) |
-| API key | optional | optional | required | required | optional |
-| Wire format | OpenAI-compatible | OpenAI-compatible (native for models) | OpenAI-compatible | Anthropic `/v1/messages` | OpenAI-compatible |
-| Model management | yes | yes | no | no | no |
-| `/v1/responses` with `previous_response_id` | yes | no | yes | no | no |
-| Embeddings | yes | yes | yes | no | yes |
-| Raw text completion | yes | yes | yes | no | yes |
+| Capability | LM Studio | Ollama | OpenAI | Anthropic | OpenAI-compatible | oMLX |
+| --- | --- | --- | --- | --- | --- | --- |
+| Default base URL | `http://127.0.0.1:1234` | `http://127.0.0.1:11434` | `https://api.openai.com` | `https://api.anthropic.com` | none (`base_url` required) | none (`base_url` required) |
+| API key | optional | optional | required | required | optional | optional |
+| Wire format | OpenAI-compatible | OpenAI-compatible (native for models) | OpenAI-compatible | Anthropic `/v1/messages` | OpenAI-compatible | OpenAI-compatible (native for models) |
+| Model management | yes | yes | no | no | no | yes |
+| `/v1/responses` with `previous_response_id` | yes | no | yes | no | no | no |
+| Embeddings | yes | yes | yes | no | yes | yes |
+| Raw text completion | yes | yes | yes | no | yes | yes |
+
+Model management by provider:
+
+| Operation | LM Studio | Ollama | oMLX |
+| --- | --- | --- | --- |
+| List library and loaded state | `GET /api/v1/models` | `GET /api/tags` + `/api/ps` | `GET /v1/models/status` (`loaded` true; `is_loading` is not loaded) |
+| Load | `POST /api/v1/models/load` | empty `/api/generate`, `keep_alive: -1` | `POST /v1/models/{id}/load` (blocks until loaded; no body) |
+| Unload | `POST /api/v1/models/unload` | empty `/api/generate`, `keep_alive: 0` | `POST /v1/models/{id}/unload`; HTTP 400 "not loaded" maps to `MODEL_NOT_LOADED` |
+| `context_length`, `eval_batch_size` | applied | applied (`num_ctx`, `num_batch`) | **not applied**: saved per-model settings behind oMLX's admin API, which an API key cannot reach |
+| `flash_attention` | applied | not applied (global setting) | **not applied** |
+| Keep loaded indefinitely | n/a | `keep_alive: -1` | not settable (pinning and TTL are admin-only) |
+| Load time reported | by server | by server | measured by this server |
+
+For Ollama and oMLX, a requested load option that was not applied is
+reported in `status` rather than dropped silently. oMLX model ids are
+percent-encoded into the URL path.
 
 Anthropic authenticates with `x-api-key` plus a required `anthropic-version`
 header rather than a bearer token.
@@ -405,11 +421,11 @@ on Windows) is used if present. When a file is used, the `LLM_PROVIDER`,
 default_profile = "lmstudio"        # optional if one profile, or one named "default"
 
 [profiles.lmstudio]
-provider = "lmstudio"               # lmstudio | ollama | openai | anthropic | openai-compatible
+provider = "lmstudio"               # lmstudio | ollama | openai | anthropic | openai-compatible | omlx
 
 [profiles.ollama]
 provider = "ollama"
-base_url = "http://127.0.0.1:11434" # optional except for openai-compatible
+base_url = "http://127.0.0.1:11434" # optional except for openai-compatible and omlx
 
 [profiles.omlx]
 provider = "openai-compatible"
@@ -542,7 +558,7 @@ together. Never hardcode credentials or environment-specific values.
 | Profiles in a TOML file, keys only via `api_key_env` | Per-profile URL and key do not fit flat env vars; secrets stay out of a file that may be shared or backed up | Indexed env vars (`LLM_1_*`); a literal `api_key` field |
 | A profiles file replaces `LLM_*` provider variables | Mixed sources would make the effective config hard to predict | Layering env over file |
 | Invalid profile stops startup; a missing key only skips the profile | Structural mistakes fail fast naming the profile; an unset key variable is an environment condition that should not take local backends down | Skipping every bad profile; failing on a missing key |
-| `openai-compatible` provider | oMLX, vLLM, llama.cpp server and similar need no key and have no model management, which `openai` does not allow | Overloading `openai` with a dummy key |
+| `openai-compatible` provider | vLLM, llama.cpp server and similar need no key and have no model management, which `openai` does not allow | Overloading `openai` with a dummy key |
 | `make deps` fetches host-platform crates only | Works offline from a warm cache; avoids downloading other platforms' crates | Plain `cargo fetch` |
 
 ## 8. Detailed Specifications
@@ -700,10 +716,11 @@ that affects it.
 
 | Area | How | When | Result |
 | --- | --- | --- | --- |
-| Format, clippy, unit tests (144) | `make check` | 2026-10-14, macOS arm64 (profiles branch) | Pass, including the `sse` tests (three of which bind a local port) |
-| Integration tests (9) | `make check` (runs `cargo test`) | 2026-10-14, macOS arm64 (profiles branch) | Pass |
+| Format, clippy, unit tests (148) | `make check` | 2026-10-14, macOS arm64 (profiles branch) | Pass, including the `sse` tests (three of which bind a local port) |
+| Integration tests (10) | `make check` (runs `cargo test`) | 2026-10-14, macOS arm64 (profiles branch) | Pass |
 | CI (format, clippy, release build, tests) | GitHub Actions on macOS arm64 and x86_64, Windows, Linux | PR #5 (`lms` tools) build | Pass on all four targets; later PRs were not re-checked for this document |
 | `lmstudio_status`, `lms_cli` `server_status`, `runtime_survey` | Called over stdio against a real LM Studio 0.4.25+1 install | 2026-10-02, macOS | Correct output |
+| `omlx` profile against a real oMLX server (list, load with an unapplied `context_length`, loaded state, unload, unload again giving `MODEL_NOT_LOADED`); the mock-server test `omlx_profile_lists_loads_and_unloads_models` covers the same flow hermetically | Called over stdio with a profiles file | 2026-10-14, macOS | Correct output |
 | `openai-compatible` profile against a real oMLX server (API key via `api_key_env`): `list_profiles`, `health_check`, `list_models` (32 models), `chat_completion`; a second profile with an unset key was skipped | Called over stdio with a profiles file | 2026-10-14, macOS | Correct output |
 | Argument behavior of `runtime select/get/update`, `link set-*`, `server start/stop` | Observed by the maintainer running the CLI by hand | 2026-10-02 | Matches the design |
 

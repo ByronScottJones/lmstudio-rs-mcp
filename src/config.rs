@@ -567,6 +567,7 @@ mod tests {
         let cases = [
             ("provider = \"bedrock\"", "unknown provider"),
             ("provider = \"openai-compatible\"", "no default URL"),
+            ("provider = \"omlx\"", "no default URL"),
             (
                 "provider = \"ollama\"\nbase_url = \"localhost:11434\"",
                 "http",
