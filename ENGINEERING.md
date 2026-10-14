@@ -236,8 +236,11 @@ profile. A result from such a tool carries `profile`, the profile that served
 it. An unknown profile is `INVALID_INPUT` listing the available names.
 `list_profiles` describes every profile and its provider's capabilities
 without network access or secrets. A profiles file that is unreadable,
-unparseable, or has an invalid profile (unknown provider, bad URL, missing or
-unset key, ambiguous default) stops startup naming the profile. API keys are
+unparseable, or has an invalid profile (unknown provider, bad URL, ambiguous
+default) stops startup naming the profile. A profile whose API key is
+unavailable (`api_key_env` unset, or a cloud provider with no key) is skipped
+with a warning so the other profiles stay usable; it is an error only if the
+skipped profile is the explicit `default_profile` or no profile remains. API keys are
 never read from the file, only from the environment variable named by
 `api_key_env`.
 
@@ -538,7 +541,7 @@ together. Never hardcode credentials or environment-specific values.
 | Several named profiles in one server, selected per call | One tool surface instead of N copies of every tool; the backend is data an agent can loop over; capabilities are discoverable via `list_profiles` | One server entry per backend (works, still supported, but multiplies the tool list); a `provider` argument with env-var credentials |
 | Profiles in a TOML file, keys only via `api_key_env` | Per-profile URL and key do not fit flat env vars; secrets stay out of a file that may be shared or backed up | Indexed env vars (`LLM_1_*`); a literal `api_key` field |
 | A profiles file replaces `LLM_*` provider variables | Mixed sources would make the effective config hard to predict | Layering env over file |
-| Invalid profile stops startup | Fail fast naming the profile, per the configuration guidance | Skipping the bad profile with a warning |
+| Invalid profile stops startup; a missing key only skips the profile | Structural mistakes fail fast naming the profile; an unset key variable is an environment condition that should not take local backends down | Skipping every bad profile; failing on a missing key |
 | `openai-compatible` provider | oMLX, vLLM, llama.cpp server and similar need no key and have no model management, which `openai` does not allow | Overloading `openai` with a dummy key |
 | `make deps` fetches host-platform crates only | Works offline from a warm cache; avoids downloading other platforms' crates | Plain `cargo fetch` |
 
@@ -697,10 +700,11 @@ that affects it.
 
 | Area | How | When | Result |
 | --- | --- | --- | --- |
-| Format, clippy, unit tests (142) | `make check` | 2026-10-14, macOS arm64 (profiles branch) | Pass, including the `sse` tests (three of which bind a local port) |
+| Format, clippy, unit tests (144) | `make check` | 2026-10-14, macOS arm64 (profiles branch) | Pass, including the `sse` tests (three of which bind a local port) |
 | Integration tests (9) | `make check` (runs `cargo test`) | 2026-10-14, macOS arm64 (profiles branch) | Pass |
 | CI (format, clippy, release build, tests) | GitHub Actions on macOS arm64 and x86_64, Windows, Linux | PR #5 (`lms` tools) build | Pass on all four targets; later PRs were not re-checked for this document |
 | `lmstudio_status`, `lms_cli` `server_status`, `runtime_survey` | Called over stdio against a real LM Studio 0.4.25+1 install | 2026-10-02, macOS | Correct output |
+| `openai-compatible` profile against a real oMLX server (API key via `api_key_env`): `list_profiles`, `health_check`, `list_models` (32 models), `chat_completion`; a second profile with an unset key was skipped | Called over stdio with a profiles file | 2026-10-14, macOS | Correct output |
 | Argument behavior of `runtime select/get/update`, `link set-*`, `server start/stop` | Observed by the maintainer running the CLI by hand | 2026-10-02 | Matches the design |
 
 **Not exercised by automated tests or by the author:** `lms_cli` running real
@@ -711,7 +715,7 @@ success paths against a live backend; Windows and Linux behavior of CLI
 discovery and app detection beyond CI; Ollama, OpenAI, and Anthropic against
 real services in this change history; profile routing against live
 backends (the integration test uses two unreachable URLs to prove which one
-each call tries); the `openai-compatible` provider against a real server.
+each call tries).
 
 ## 11. Risks, Gaps, and Future Work
 

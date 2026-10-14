@@ -268,8 +268,9 @@ to use the default. Call `list_profiles` to see what is configured and what
 each provider supports. Results from provider tools include the `profile`
 that served them. `base_url` is optional except for `openai-compatible`;
 `openai` and `anthropic` need `api_key_env`. An invalid file (unknown
-provider, bad URL, unset key variable, several profiles with no default)
-stops startup with an error naming the profile. When a profiles file is in
+provider, bad URL, several profiles with no default) stops startup with an
+error naming the profile. A profile whose key variable is unset is skipped
+with a warning (stderr) instead, so the other backends keep working. When a profiles file is in
 use, the variables below are not read.
 
 ### Single provider: environment variables

@@ -43,6 +43,11 @@ pub enum ConfigError {
     MissingApiKey { provider: Provider },
     #[error("profile '{profile}': {reason}")]
     InvalidProfile { profile: String, reason: String },
+    /// A profile needs an API key that is not available. Unlike other
+    /// profile errors this is not fatal when loading a profiles file: the
+    /// profile is skipped so the others stay usable.
+    #[error("profile '{profile}': {reason}")]
+    ProfileKeyUnavailable { profile: String, reason: String },
     #[error("profiles file {path}: {reason}")]
     ProfilesFile { path: String, reason: String },
 }
@@ -153,13 +158,29 @@ impl Profiles {
         })?;
 
         let mut profiles = Vec::with_capacity(file.profiles.len());
+        let mut skipped: Vec<String> = Vec::new();
         for (name, entry) in file.profiles {
-            profiles.push(entry.resolve(name, &lookup)?);
+            match entry.resolve(name, &lookup) {
+                Ok(profile) => profiles.push(profile),
+                Err(ConfigError::ProfileKeyUnavailable { profile, reason }) => {
+                    tracing::warn!("Skipping profile '{profile}': {reason}");
+                    skipped.push(profile);
+                }
+                Err(e) => return Err(e),
+            }
         }
         let names: Vec<&str> = profiles.iter().map(|p| p.name.as_str()).collect();
 
         let default = match file.default_profile {
             Some(wanted) if names.contains(&wanted.as_str()) => wanted,
+            Some(wanted) if skipped.contains(&wanted) => {
+                return Err(ConfigError::ProfilesFile {
+                    path: String::new(),
+                    reason: format!(
+                        "default_profile '{wanted}' was skipped because its API key is unavailable"
+                    ),
+                })
+            }
             Some(wanted) => {
                 return Err(ConfigError::ProfilesFile {
                     path: String::new(),
@@ -174,7 +195,12 @@ impl Profiles {
             None => {
                 return Err(ConfigError::ProfilesFile {
                     path: String::new(),
-                    reason: if names.is_empty() {
+                    reason: if names.is_empty() && !skipped.is_empty() {
+                        format!(
+                            "every profile was skipped for a missing API key ({})",
+                            skipped.join(", ")
+                        )
+                    } else if names.is_empty() {
                         "no profiles defined — add a [profiles.<name>] table".to_string()
                     } else {
                         format!(
@@ -255,18 +281,20 @@ impl ProfileEntry {
             Some(var) => {
                 let key = lookup(&var).filter(|k| !k.is_empty());
                 if key.is_none() {
-                    return Err(invalid(format!(
-                        "api_key_env names '{var}', which is not set"
-                    )));
+                    return Err(ConfigError::ProfileKeyUnavailable {
+                        profile: name,
+                        reason: format!("api_key_env names '{var}', which is not set"),
+                    });
                 }
                 key
             }
             None => None,
         };
         if provider.requires_api_key() && api_key.is_none() {
-            return Err(invalid(format!(
-                "{provider} requires an API key — set api_key_env"
-            )));
+            return Err(ConfigError::ProfileKeyUnavailable {
+                profile: name,
+                reason: format!("{provider} requires an API key — set api_key_env"),
+            });
         }
         Ok(Config {
             name,
@@ -539,11 +567,6 @@ mod tests {
         let cases = [
             ("provider = \"bedrock\"", "unknown provider"),
             ("provider = \"openai-compatible\"", "no default URL"),
-            ("provider = \"openai\"", "requires an API key"),
-            (
-                "provider = \"openai\"\napi_key_env = \"UNSET_VAR\"",
-                "UNSET_VAR",
-            ),
             (
                 "provider = \"ollama\"\nbase_url = \"localhost:11434\"",
                 "http",
@@ -555,6 +578,33 @@ mod tests {
                 .to_string();
             assert!(err.contains("'p'") && err.contains(expect), "{body}: {err}");
         }
+    }
+
+    #[test]
+    fn profile_with_an_unavailable_key_is_skipped_not_fatal() {
+        let toml = "default_profile = \"local\"\n\
+            [profiles.local]\nprovider = \"ollama\"\n\
+            [profiles.cloud]\nprovider = \"openai\"\n\
+            [profiles.cloud2]\nprovider = \"anthropic\"\napi_key_env = \"UNSET_VAR\"";
+        let profiles = Profiles::from_toml(toml, no_env).unwrap();
+        assert_eq!(profiles.profiles.len(), 1);
+        assert_eq!(profiles.default, "local");
+        assert!(profiles.get("cloud").is_none() && profiles.get("cloud2").is_none());
+    }
+
+    #[test]
+    fn skipped_default_or_all_skipped_is_still_an_error() {
+        let skipped_default = "default_profile = \"cloud\"\n\
+            [profiles.local]\nprovider = \"ollama\"\n\
+            [profiles.cloud]\nprovider = \"openai\"";
+        let err = Profiles::from_toml(skipped_default, no_env)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("cloud") && err.contains("skipped"), "{err}");
+        let err = Profiles::from_toml("[profiles.c]\nprovider = \"openai\"", no_env)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("every profile was skipped"), "{err}");
     }
 
     #[test]
