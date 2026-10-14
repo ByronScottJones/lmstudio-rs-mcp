@@ -156,6 +156,8 @@ pub mod model {
 
 pub struct ApiClient {
     http: HttpClient,
+    /// Name of the profile this client was built from.
+    profile: String,
     provider: Provider,
     /// `scheme://host:port`, no trailing slash, no `/v1` or `/api/...` suffix.
     base_url: String,
@@ -169,10 +171,15 @@ impl ApiClient {
             .expect("failed to build HTTP client");
         Self {
             http,
+            profile: config.name.clone(),
             provider: config.provider,
             base_url: config.base_url.clone(),
             api_key: config.api_key.clone(),
         }
+    }
+
+    pub fn profile(&self) -> &str {
+        &self.profile
     }
 
     pub fn provider(&self) -> Provider {
@@ -195,7 +202,7 @@ impl ApiClient {
         match self.provider {
             Provider::LmStudio => format!("{}/api/v1", self.base_url),
             Provider::Ollama => format!("{}/api", self.base_url),
-            Provider::OpenAi | Provider::Anthropic => {
+            Provider::OpenAi | Provider::Anthropic | Provider::OpenAiCompatible => {
                 unreachable!("{} has no native model-management API", self.provider)
             }
         }
@@ -315,7 +322,9 @@ impl ApiClient {
                 self.get_json(&url, DEFAULT_TIMEOUT).await
             }
             Provider::Ollama => self.list_models_ollama().await,
-            Provider::OpenAi | Provider::Anthropic => self.list_models_v1().await,
+            Provider::OpenAi | Provider::Anthropic | Provider::OpenAiCompatible => {
+                self.list_models_v1().await
+            }
         }
     }
 
@@ -460,7 +469,7 @@ impl ApiClient {
                     .await
             }
             Provider::Ollama => self.load_model_ollama(body).await,
-            Provider::OpenAi | Provider::Anthropic => {
+            Provider::OpenAi | Provider::Anthropic | Provider::OpenAiCompatible => {
                 unreachable!("{} has no model management API", self.provider)
             }
         }
@@ -572,7 +581,7 @@ impl ApiClient {
                     ..Default::default()
                 })
             }
-            Provider::OpenAi | Provider::Anthropic => {
+            Provider::OpenAi | Provider::Anthropic | Provider::OpenAiCompatible => {
                 unreachable!("{} has no model management API", self.provider)
             }
         }

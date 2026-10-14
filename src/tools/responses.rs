@@ -297,6 +297,10 @@ async fn send_responses_request(
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CreateResponseInput {
+    /// Provider profile to use (see `list_profiles`). Defaults to the
+    /// server's default profile.
+    #[serde(default)]
+    pub profile: Option<String>,
     /// The user's input text.
     pub input_text: String,
     /// ID from a previous response to continue the conversation.
@@ -347,6 +351,10 @@ pub async fn create_response(
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct StartConversationInput {
+    /// Provider profile to use (see `list_profiles`). Defaults to the
+    /// server's default profile.
+    #[serde(default)]
+    pub profile: Option<String>,
     /// The persona or instructions to apply for the whole conversation
     /// (e.g. "You are a friend at a bar, keep it casual and fun").
     pub system_prompt: String,
@@ -398,6 +406,10 @@ pub async fn start_conversation(
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ContinueConversationInput {
+    /// Provider profile to use (see `list_profiles`). Defaults to the
+    /// server's default profile.
+    #[serde(default)]
+    pub profile: Option<String>,
     /// The `response_id` returned by `start_conversation` or a previous
     /// `continue_conversation` call.
     pub response_id: String,

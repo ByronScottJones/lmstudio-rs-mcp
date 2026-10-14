@@ -12,6 +12,10 @@ use std::path::PathBuf;
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RunSubagentInput {
+    /// Provider profile to use (see `list_profiles`). Defaults to the
+    /// server's default profile.
+    #[serde(default)]
+    pub profile: Option<String>,
     /// The task for the subagent to complete. Be specific about the goal
     /// and what "done" looks like — this model is smaller than you and
     /// benefits from a narrow, concrete task more than a broad one.

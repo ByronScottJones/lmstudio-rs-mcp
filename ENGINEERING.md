@@ -68,8 +68,11 @@ model backend through tools:
 - **Feedback:** draft and file GitHub issues about this server through a
   human-reviewed flow.
 
-The backend is chosen with `LLM_PROVIDER`: LM Studio (default), Ollama,
-OpenAI, or Anthropic. It runs on macOS, Windows, and Linux over stdio.
+Backends are configured as named *profiles* (FR-14): LM Studio (default),
+Ollama, OpenAI, Anthropic, or any OpenAI-compatible server. One server
+instance can hold several profiles at once and each tool call picks one. With
+no profiles file, `LLM_PROVIDER` and friends define a single profile named
+`default`. It runs on macOS, Windows, and Linux over stdio.
 
 ### Non-goals
 
@@ -117,8 +120,9 @@ failure `data` is absent and `error` is `{ code, message }`.
   envelope check applied to every tool call in `tests/mcp_stdio.rs`
   (for example `provider_tools_report_connection_failures_in_the_envelope`).
 
-**FR-2 Provider selection.** `LLM_PROVIDER` selects `lmstudio`, `ollama`,
-`openai`, or `anthropic` (aliases: `lm-studio`, `lm_studio`, `open-ai`,
+**FR-2 Provider selection.** A profile's provider is `lmstudio`, `ollama`,
+`openai`, `anthropic`, or `openai-compatible`. In the environment-only form,
+`LLM_PROVIDER` selects it (aliases: `lm-studio`, `lm_studio`, `open-ai`,
 `claude`). Unknown values warn and fall back to `lmstudio`. `openai` and
 `anthropic` refuse to start without an API key.
 
@@ -218,6 +222,33 @@ booleans that match its behavior.
 - Verified by: `every_tool_declares_all_four_annotation_hints_as_booleans`,
   `annotations_match_what_the_tools_actually_do`.
 
+**FR-14 Provider profiles.** A server instance holds one or more named
+profiles, each with a provider, base URL, and optional API key. Profiles come
+from a TOML file (`LLM_PROFILES_FILE`, else
+`<config dir>/lmstudio-rs-mcp/profiles.toml` when it exists); otherwise one
+profile named `default` is built from the environment (FR-2). Every provider
+tool (`health_check`, `lmstudio_status`, `list_models`, `list_loaded_models`,
+`get_current_model`, `get_model_info`, `load_model`, `unload_model`,
+`chat_completion`, `text_completion`, `generate_embeddings`,
+`create_response`, `start_conversation`, `continue_conversation`,
+`run_subagent`) accepts an optional `profile`; omitted means the default
+profile. A result from such a tool carries `profile`, the profile that served
+it. An unknown profile is `INVALID_INPUT` listing the available names.
+`list_profiles` describes every profile and its provider's capabilities
+without network access or secrets. A profiles file that is unreadable,
+unparseable, or has an invalid profile (unknown provider, bad URL, missing or
+unset key, ambiguous default) stops startup naming the profile. API keys are
+never read from the file, only from the environment variable named by
+`api_key_env`.
+
+- Acceptance: with two profiles on different URLs, `health_check` with and
+  without `profile` reaches the respective backends and reports which
+  profile served the call.
+- Verified by: `config::tests` (profiles file parsing, defaults, validation),
+  `profiles::tests`, `tools::profiles::tests`,
+  `profiles_route_calls_to_different_backends`,
+  `an_invalid_profiles_file_stops_the_server_before_serving`.
+
 ### 4.2 Non-functional requirements
 
 **NFR-1 Stdout is the protocol.** Nothing but MCP messages is written to
@@ -292,7 +323,9 @@ Serialized in `SCREAMING_SNAKE_CASE`. New codes go in `src/types.rs`.
 
 ### 5.3 Tool catalog
 
-Columns under Hints are R (read-only), D (destructive), I (idempotent),
+Every provider tool also takes an optional `profile` (FR-14); the Inputs
+column omits it except where it is the only input. `lms_cli` and the
+`feedback_*` tools do not take one. Columns under Hints are R (read-only), D (destructive), I (idempotent),
 O (open world: may reach a network service). A dash means false. A leading
 `*` marks a required input. The test
 `annotations_match_what_the_tools_actually_do` enforces the intent behind
@@ -300,12 +333,13 @@ this table; update both together.
 
 | Tool | Hints R D I O | Inputs | Providers |
 | --- | --- | --- | --- |
-| `health_check` | R - I O | none | all |
-| `lmstudio_status` | R - I O | none | all (API check LM Studio only) |
+| `list_profiles` | R - I - | none | local |
+| `health_check` | R - I O | `profile` | all |
+| `lmstudio_status` | R - I O | `profile` | all (API check LM Studio only) |
 | `lms_cli` | - D - O | `*command`, `args`, `timeout_seconds` | LM Studio host |
-| `list_models` | R - I O | none | all |
-| `list_loaded_models` | R - I O | none | LM Studio, Ollama |
-| `get_current_model` | R - I O | none | LM Studio, Ollama |
+| `list_models` | R - I O | `profile` | all |
+| `list_loaded_models` | R - I O | `profile` | LM Studio, Ollama |
+| `get_current_model` | R - I O | `profile` | LM Studio, Ollama |
 | `get_model_info` | R - I O | `*identifier` | LM Studio, Ollama |
 | `load_model` | - - - O | `*model`, `context_length`, `flash_attention`, `eval_batch_size` | LM Studio, Ollama |
 | `unload_model` | - D - O | `*identifier` | LM Studio, Ollama |
@@ -340,15 +374,15 @@ Annotation rationale where it is a judgment call:
 
 Source of truth: `src/providers.rs`.
 
-| Capability | LM Studio | Ollama | OpenAI | Anthropic |
-| --- | --- | --- | --- | --- |
-| Default base URL | `http://127.0.0.1:1234` | `http://127.0.0.1:11434` | `https://api.openai.com` | `https://api.anthropic.com` |
-| API key | optional | optional | required | required |
-| Wire format | OpenAI-compatible | OpenAI-compatible (native for models) | OpenAI-compatible | Anthropic `/v1/messages` |
-| Model management | yes | yes | no | no |
-| `/v1/responses` with `previous_response_id` | yes | no | yes | no |
-| Embeddings | yes | yes | yes | no |
-| Raw text completion | yes | yes | yes | no |
+| Capability | LM Studio | Ollama | OpenAI | Anthropic | OpenAI-compatible |
+| --- | --- | --- | --- | --- | --- |
+| Default base URL | `http://127.0.0.1:1234` | `http://127.0.0.1:11434` | `https://api.openai.com` | `https://api.anthropic.com` | none (`base_url` required) |
+| API key | optional | optional | required | required | optional |
+| Wire format | OpenAI-compatible | OpenAI-compatible (native for models) | OpenAI-compatible | Anthropic `/v1/messages` | OpenAI-compatible |
+| Model management | yes | yes | no | no | no |
+| `/v1/responses` with `previous_response_id` | yes | no | yes | no | no |
+| Embeddings | yes | yes | yes | no | yes |
+| Raw text completion | yes | yes | yes | no | yes |
 
 Anthropic authenticates with `x-api-key` plus a required `anthropic-version`
 header rather than a bearer token.
@@ -358,9 +392,38 @@ header rather than a bearer token.
 Read from the environment at connect time, so a client that sets variables in
 its MCP launch config always wins.
 
+Profiles file (TOML, FR-14). `LLM_PROFILES_FILE` names it explicitly (it must
+exist); otherwise `<config dir>/lmstudio-rs-mcp/profiles.toml`
+(`~/Library/Application Support` on macOS, `~/.config` on Linux, `%APPDATA%`
+on Windows) is used if present. When a file is used, the `LLM_PROVIDER`,
+`LLM_BASE_URL`, `LLM_API_KEY`, and legacy `LMSTUDIO_*` variables are not read.
+
+```toml
+default_profile = "lmstudio"        # optional if one profile, or one named "default"
+
+[profiles.lmstudio]
+provider = "lmstudio"               # lmstudio | ollama | openai | anthropic | openai-compatible
+
+[profiles.ollama]
+provider = "ollama"
+base_url = "http://127.0.0.1:11434" # optional except for openai-compatible
+
+[profiles.omlx]
+provider = "openai-compatible"
+base_url = "http://127.0.0.1:8000"
+
+[profiles.claude]
+provider = "anthropic"
+api_key_env = "ANTHROPIC_API_KEY"   # name of the variable, never the key
+```
+
+Profile names use letters, digits, `-`, `_`, and `.`. Unknown keys are
+errors.
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `LLM_PROVIDER` | `lmstudio` | Backend selection (FR-2) |
+| `LLM_PROFILES_FILE` | auto-detect | Path to the profiles file (FR-14); must exist if set |
+| `LLM_PROVIDER` | `lmstudio` | Backend selection for the env-only `default` profile (FR-2) |
 | `LLM_BASE_URL` | provider default | `scheme://host:port`, no trailing slash, no `/v1` suffix |
 | `LLM_API_KEY` | none | Bearer or API key; required for OpenAI and Anthropic |
 | `LMSTUDIO_BASE_URL`, `LMSTUDIO_HOST`, `LMSTUDIO_PORT`, `LMSTUDIO_API_TOKEN` | none | Legacy LM Studio variables, still honored |
@@ -399,11 +462,13 @@ together. Never hardcode credentials or environment-specific values.
 | `src/server.rs` | One `#[tool]` method per tool, with annotations; wires to `tools::*` |
 | `src/client.rs` | HTTP client over every provider, plus Ollama and Anthropic translation |
 | `src/providers.rs` | `Provider` enum and capability matrix |
-| `src/config.rs` | Environment configuration |
+| `src/config.rs` | Profiles file and environment configuration |
+| `src/profiles.rs` | `ProfileRegistry`: one `ApiClient` per profile, profile resolution |
 | `src/types.rs` | `ToolResult`, `ErrorCode`, `ClientError`, timeout constants |
 | `src/sse.rs` | Server-Sent Events reader with idle and maximum timeouts |
 | `src/lms.rs` | Locate and run `lms`, install detection, `LmsCommand` allowlist |
 | `src/tools/health_check.rs` | `health_check` |
+| `src/tools/profiles.rs` | `list_profiles` and the shared `ProfileInput` |
 | `src/tools/lms.rs` | `lmstudio_status`, `lms_cli` |
 | `src/tools/models.rs` | Model listing and management, auto-detection |
 | `src/tools/chat.rs` | `chat_completion`, `text_completion` |
@@ -430,7 +495,9 @@ together. Never hardcode credentials or environment-specific values.
 1. The MCP client launches the binary and speaks JSON-RPC over stdio.
 2. `server.rs` deserializes tool arguments into the input structs in
    `tools/*`, whose `JsonSchema` derivations publish the input schemas.
-3. A tool function in `tools/*` calls `ApiClient` (HTTP providers), the
+3. For provider tools, `ProfileRegistry::resolve` picks the `ApiClient` for
+   the call's `profile` (or the default) and the result is stamped with the
+   profile name. A tool function in `tools/*` then calls `ApiClient` (HTTP providers), the
    subagent runner, the feedback store, or `lms.rs` (local CLI).
 4. Provider differences are absorbed in `client.rs`, so tools see one shape.
 5. The tool returns `ToolResult<T>`, which `server.rs` wraps in `Json` so the
@@ -468,6 +535,11 @@ together. Never hardcode credentials or environment-specific values.
 | `lmstudio_status` never fails as a whole | A missing CLI must not hide a working API, and the reverse | Failing fast on the first problem |
 | `LMS_PATH` that does not exist is an error | A misconfiguration must not silently run a different binary | Falling through to `PATH` |
 | All four annotation hints explicit | Hosts and directories may reject tools missing any hint | Relying on protocol defaults |
+| Several named profiles in one server, selected per call | One tool surface instead of N copies of every tool; the backend is data an agent can loop over; capabilities are discoverable via `list_profiles` | One server entry per backend (works, still supported, but multiplies the tool list); a `provider` argument with env-var credentials |
+| Profiles in a TOML file, keys only via `api_key_env` | Per-profile URL and key do not fit flat env vars; secrets stay out of a file that may be shared or backed up | Indexed env vars (`LLM_1_*`); a literal `api_key` field |
+| A profiles file replaces `LLM_*` provider variables | Mixed sources would make the effective config hard to predict | Layering env over file |
+| Invalid profile stops startup | Fail fast naming the profile, per the configuration guidance | Skipping the bad profile with a warning |
+| `openai-compatible` provider | oMLX, vLLM, llama.cpp server and similar need no key and have no model management, which `openai` does not allow | Overloading `openai` with a dummy key |
 | `make deps` fetches host-platform crates only | Works offline from a warm cache; avoids downloading other platforms' crates | Plain `cargo fetch` |
 
 ## 8. Detailed Specifications
@@ -625,8 +697,8 @@ that affects it.
 
 | Area | How | When | Result |
 | --- | --- | --- | --- |
-| Format, clippy, unit tests (130) | `make check` | 2026-10-08, macOS arm64 | Pass, including the `sse` tests (three of which bind a local port) |
-| Integration tests (7) | `make check` (runs `cargo test`) | 2026-10-08, macOS arm64 | Pass |
+| Format, clippy, unit tests (142) | `make check` | 2026-10-14, macOS arm64 (profiles branch) | Pass, including the `sse` tests (three of which bind a local port) |
+| Integration tests (9) | `make check` (runs `cargo test`) | 2026-10-14, macOS arm64 (profiles branch) | Pass |
 | CI (format, clippy, release build, tests) | GitHub Actions on macOS arm64 and x86_64, Windows, Linux | PR #5 (`lms` tools) build | Pass on all four targets; later PRs were not re-checked for this document |
 | `lmstudio_status`, `lms_cli` `server_status`, `runtime_survey` | Called over stdio against a real LM Studio 0.4.25+1 install | 2026-10-02, macOS | Correct output |
 | Argument behavior of `runtime select/get/update`, `link set-*`, `server start/stop` | Observed by the maintainer running the CLI by hand | 2026-10-02 | Matches the design |
@@ -637,7 +709,9 @@ that affects it.
 the `lms runtime remove` path (intentionally unsupported); the provider tools'
 success paths against a live backend; Windows and Linux behavior of CLI
 discovery and app detection beyond CI; Ollama, OpenAI, and Anthropic against
-real services in this change history.
+real services in this change history; profile routing against live
+backends (the integration test uses two unreachable URLs to prove which one
+each call tries); the `openai-compatible` provider against a real server.
 
 ## 11. Risks, Gaps, and Future Work
 
@@ -693,7 +767,8 @@ Possible future work:
 ### Add a provider
 
 1. Extend `Provider` and every capability predicate in `src/providers.rs`.
-2. Add configuration defaults in `src/config.rs`.
+2. Add configuration defaults in `src/config.rs` (the profiles file and the
+   environment form share `Provider::parse`).
 3. Translate requests and responses in `src/client.rs`, keeping quirks there.
 4. Update [section 5.4](#54-provider-capability-matrix), the README, and the
    capability tests; verify against the real service.

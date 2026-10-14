@@ -6,9 +6,12 @@ or [Ollama](https://ollama.com/) running locally, or OpenAI/Anthropic in the
 cloud — inference **and**, where the provider supports it, model management,
 in one Rust binary that runs natively on macOS, Windows, and Linux.
 
-Exactly one provider is active per server instance, selected with
-`LLM_PROVIDER` (defaults to `lmstudio` — see [Configuration](#configuration)).
-Every tool works the same way regardless of which one is configured;
+A server instance holds one or more named **profiles**, each bound to one
+provider (LM Studio, Ollama, OpenAI, Anthropic, or any OpenAI-compatible
+server such as vLLM or oMLX), so you can use several backends at once —
+every provider tool takes an optional `profile` argument. With no profiles
+file, `LLM_PROVIDER` defines a single profile named `default` (defaults to
+`lmstudio` — see [Configuration](#configuration)). Every tool works the same way regardless of which one is configured;
 inference tools (`chat_completion`, `run_subagent`, ...) work identically on
 all four, while model-management tools and the stateful `/v1/responses`
 tools are only meaningful for providers that actually have that concept (see
@@ -38,7 +41,8 @@ below need to know which provider is actually active.
 
 | Tool | Works on | Description |
 |------|----------|-------------|
-| `health_check` | all | Verify the configured provider is reachable |
+| `list_profiles` | local | List the configured provider profiles, their providers, and capabilities (no network, no secrets) |
+| `health_check` | all | Verify a profile's provider is reachable |
 | `lmstudio_status` | LM Studio | Check whether LM Studio is installed (and its version), the `lms` CLI is available (and its build commit), and the REST API is reachable — each reported independently |
 | `lms_cli` | LM Studio | Run an `lms` CLI command the REST API lacks: server start/stop/status, runtime engines, LM Link, `get` (download), `import`, `clone`, `whoami`/`logout` (see below) |
 | `list_models` | all | List models available from the configured provider — the local library for LM Studio/Ollama, or every model the API key can use for OpenAI/Anthropic |
@@ -232,12 +236,51 @@ Depending on which provider you configure (see [Configuration](#configuration)):
 
 ## Configuration
 
+### Multiple providers: profiles
+
+To use several backends at once, create a profiles file (TOML). It is read
+from `LLM_PROFILES_FILE` if set, otherwise from
+`<config dir>/lmstudio-rs-mcp/profiles.toml` if that exists —
+`~/Library/Application Support/` on macOS, `~/.config/` on Linux, `%APPDATA%`
+on Windows.
+
+```toml
+default_profile = "lmstudio"        # optional if one profile, or one named "default"
+
+[profiles.lmstudio]
+provider = "lmstudio"
+
+[profiles.ollama]
+provider = "ollama"
+
+[profiles.omlx]
+provider = "openai-compatible"      # vLLM, llama.cpp server, oMLX, ...
+base_url = "http://127.0.0.1:8000"
+
+[profiles.claude]
+provider = "anthropic"
+api_key_env = "ANTHROPIC_API_KEY"   # the variable's name; keys are never stored in the file
+```
+
+Then pass `profile` to any provider tool — for example
+`chat_completion` with `{"profile": "ollama", "prompt": "..."}` — or omit it
+to use the default. Call `list_profiles` to see what is configured and what
+each provider supports. Results from provider tools include the `profile`
+that served them. `base_url` is optional except for `openai-compatible`;
+`openai` and `anthropic` need `api_key_env`. An invalid file (unknown
+provider, bad URL, unset key variable, several profiles with no default)
+stops startup with an error naming the profile. When a profiles file is in
+use, the variables below are not read.
+
+### Single provider: environment variables
+
 Read from the environment at connect time:
 
 | Variable | Default | Description |
 |----------|---------|--------------|
-| `LLM_PROVIDER` | `lmstudio` | One of `lmstudio`, `ollama`, `openai`, `anthropic` (`claude` also accepted). Unknown values fall back to `lmstudio` with a warning. |
-| `LLM_BASE_URL` | provider default | Full `scheme://host:port` override. Provider defaults: `http://127.0.0.1:1234` (lmstudio), `http://127.0.0.1:11434` (ollama), `https://api.openai.com` (openai), `https://api.anthropic.com` (anthropic). |
+| `LLM_PROFILES_FILE` | _(auto-detected)_ | Path to a profiles file (see above). Must exist if set. |
+| `LLM_PROVIDER` | `lmstudio` | One of `lmstudio`, `ollama`, `openai`, `anthropic` (`claude` also accepted), `openai-compatible`. Unknown values fall back to `lmstudio` with a warning. |
+| `LLM_BASE_URL` | provider default | Full `scheme://host:port` override. Provider defaults: `http://127.0.0.1:1234` (lmstudio), `http://127.0.0.1:11434` (ollama), `https://api.openai.com` (openai), `https://api.anthropic.com` (anthropic). `openai-compatible` has no default — `LLM_BASE_URL` is required. |
 | `LLM_API_KEY` | _(none)_ | API key / bearer token. **Required** for `openai` and `anthropic` (the server refuses to start without one); optional for `lmstudio`/`ollama`, if you've turned on local API auth. |
 | `LMS_PATH` | _(auto-detected)_ | Full path to the `lms` binary, for `lmstudio_status`/`lms_cli`. Otherwise searched on `PATH`, then `~/.lmstudio/bin`. |
 | `GITHUB_TOKEN` | _(none)_ | Used by `feedback_check_duplicates`/`feedback_submit` for a private repo, if no `token` argument is passed and `gh` isn't already authenticated. |
