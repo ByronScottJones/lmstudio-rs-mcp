@@ -31,7 +31,7 @@ pub struct RunSubagentInput {
     #[serde(default)]
     pub capability: Option<Capability>,
     /// Which model to use as the subagent. Auto-detected if exactly one
-    /// model is currently loaded (LM Studio/Ollama); required for providers
+    /// model is currently loaded (LM Studio/Ollama/oMLX); required for providers
     /// with no loaded-model concept (OpenAI/Anthropic).
     #[serde(default)]
     pub model: Option<String>,

@@ -393,6 +393,12 @@ pub async fn unload_model(client: &ApiClient, input: UnloadModelInput) -> ToolRe
         Err(e) => {
             let code = match &e {
                 ClientError::Status { status, .. } if *status == 404 => ErrorCode::ModelNotLoaded,
+                // oMLX answers an unload of an already-unloaded model with 400.
+                ClientError::Status { status, body }
+                    if *status == 400 && body.contains("not loaded") =>
+                {
+                    ErrorCode::ModelNotLoaded
+                }
                 other => other.code(),
             };
             let message = if code == ErrorCode::ModelNotLoaded {
