@@ -6,7 +6,7 @@ use crate::config::Profiles;
 use crate::feedback::store::FeedbackStore;
 use crate::profiles::ProfileRegistry;
 use crate::tools::{
-    chat, embeddings, feedback, health_check, lms, models, profiles, responses, subagent,
+    chat, decisions, embeddings, feedback, health_check, lms, models, profiles, responses, subagent,
 };
 use crate::types::{ErrorCode, ToolResult};
 use rmcp::handler::server::router::tool::ToolRouter;
@@ -298,6 +298,46 @@ impl LmStudioServer {
         let profile = input.profile.clone();
         self.on_profile(profile.as_deref(), |c| async move {
             embeddings::generate_embeddings(&c, input).await
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Ask a loaded decision model structured questions about some input via the OpenAI-compatible /v1/decisions endpoint. Requires a decision model, not a regular chat model. Only LM Studio and OpenAI support this",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn create_decision(
+        &self,
+        Parameters(input): Parameters<decisions::CreateDecisionInput>,
+    ) -> Json<crate::types::ToolResult<decisions::DecisionData>> {
+        let profile = input.profile.clone();
+        self.on_profile(profile.as_deref(), |c| async move {
+            decisions::create_decision(&c, input).await
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Ask a loaded decision model structured questions about a state via LM Studio's native /v1/systemone endpoint (question types: noul, choice, score). Requires a decision model, not a regular chat model. Only LM Studio supports this",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn system_one(
+        &self,
+        Parameters(input): Parameters<decisions::SystemOneInput>,
+    ) -> Json<crate::types::ToolResult<decisions::DecisionData>> {
+        let profile = input.profile.clone();
+        self.on_profile(profile.as_deref(), |c| async move {
+            decisions::system_one(&c, input).await
         })
         .await
     }

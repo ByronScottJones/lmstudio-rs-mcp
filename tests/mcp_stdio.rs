@@ -32,6 +32,8 @@ const ALL_TOOLS: &[&str] = &[
     "chat_completion",
     "text_completion",
     "generate_embeddings",
+    "create_decision",
+    "system_one",
     "create_response",
     "start_conversation",
     "continue_conversation",
@@ -263,6 +265,14 @@ fn provider_tools_report_connection_failures_in_the_envelope() {
         ("chat_completion", json!({ "prompt": "hi", "model": "x" })),
         ("text_completion", json!({ "prompt": "hi", "model": "x" })),
         ("generate_embeddings", json!({ "text": "hi", "model": "x" })),
+        (
+            "create_decision",
+            json!({ "model": "x", "input": "hi", "questions": [] }),
+        ),
+        (
+            "system_one",
+            json!({ "model": "x", "state": "hi", "questions": {} }),
+        ),
         (
             "create_response",
             json!({ "input_text": "hi", "model": "x" }),

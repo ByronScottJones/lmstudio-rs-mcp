@@ -105,6 +105,18 @@ impl Provider {
         matches!(self, Provider::LmStudio | Provider::OpenAi)
     }
 
+    /// Whether this provider serves the OpenAI-compatible `/v1/decisions`
+    /// endpoint. Gates `create_decision`.
+    pub fn supports_decisions(self) -> bool {
+        matches!(self, Provider::LmStudio | Provider::OpenAi)
+    }
+
+    /// Whether this provider serves LM Studio's native `/v1/systemone`
+    /// endpoint. Gates `system_one`.
+    pub fn supports_systemone(self) -> bool {
+        matches!(self, Provider::LmStudio)
+    }
+
     /// Whether this provider has any embeddings endpoint at all. Anthropic
     /// doesn't offer one.
     pub fn supports_embeddings(self) -> bool {
@@ -204,6 +216,18 @@ mod tests {
         assert!(!Provider::OpenAi.supports_model_management());
         assert!(!Provider::Anthropic.supports_model_management());
         assert!(!Provider::OpenAiCompatible.supports_model_management());
+    }
+
+    #[test]
+    fn decisions_are_lm_studio_and_openai_but_systemone_is_lm_studio_only() {
+        assert!(Provider::LmStudio.supports_decisions());
+        assert!(Provider::OpenAi.supports_decisions());
+        assert!(Provider::LmStudio.supports_systemone());
+        assert!(!Provider::OpenAi.supports_systemone());
+        assert!(!Provider::Ollama.supports_decisions());
+        assert!(!Provider::Omlx.supports_decisions());
+        assert!(!Provider::Anthropic.supports_decisions());
+        assert!(!Provider::OpenAiCompatible.supports_decisions());
     }
 
     #[test]
