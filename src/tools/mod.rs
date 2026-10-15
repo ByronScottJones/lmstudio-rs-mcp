@@ -1,4 +1,5 @@
 pub mod chat;
+pub mod decisions;
 pub mod embeddings;
 pub mod feedback;
 pub mod health_check;

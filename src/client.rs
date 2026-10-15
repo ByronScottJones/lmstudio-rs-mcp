@@ -784,6 +784,16 @@ impl ApiClient {
             .await
     }
 
+    /// POST a request to a decision-model endpoint (`/decisions` or
+    /// `/systemone`). Decision models answer structured questions in a
+    /// single pass, so this stays non-streaming. Callers must check
+    /// `Provider::supports_decisions` / `supports_systemone` first.
+    pub async fn decisions(&self, endpoint: &str, body: Value) -> Result<Value, ClientError> {
+        let url = format!("{}/{endpoint}", self.v1_url());
+        self.post_json(&url, &body, crate::types::INFERENCE_TIMEOUT)
+            .await
+    }
+
     /// POST a stateful responses request to the OpenAI-compatible endpoint.
     /// Streamed internally; see [`Self::chat_completion`]. Callers must
     /// check `Provider::supports_responses_api` first — only LM Studio and

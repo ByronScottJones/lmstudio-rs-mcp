@@ -54,6 +54,8 @@ below need to know which provider is actually active.
 | `chat_completion` | all | Chat-formatted completion |
 | `text_completion` | LM Studio, Ollama, OpenAI | Raw/non-chat completion (faster, for code/continuation) |
 | `generate_embeddings` | all except Anthropic | Vector embeddings for RAG/semantic search |
+| `create_decision` | LM Studio, OpenAI | Structured questions answered by a decision model via `/v1/decisions` |
+| `system_one` | LM Studio | Same, via the native `/v1/systemone` endpoint (`noul`/`choice`/`score` questions) |
 | `create_response` | LM Studio, OpenAI | Stateful response via a `/v1/responses`-style endpoint |
 | `start_conversation` | LM Studio, OpenAI | Begin a multi-turn session with a locked-in system prompt |
 | `continue_conversation` | LM Studio, OpenAI | Continue a session started above |
@@ -414,6 +416,7 @@ src/
     ├── models.rs       # list_models, list_loaded_models, get_current_model,
     │                   # get_model_info, load_model, unload_model
     ├── chat.rs         # chat_completion, text_completion
+    ├── decisions.rs    # create_decision, system_one
     ├── embeddings.rs   # generate_embeddings
     ├── responses.rs    # create_response, start_conversation, continue_conversation
     ├── subagent.rs     # run_subagent (MCP wrapper around subagent::runner)
