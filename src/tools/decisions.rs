@@ -36,9 +36,9 @@ pub struct SystemOneInput {
     /// data URLs, and the model must support image input.
     pub state: String,
     /// Questions keyed by question ID, passed through as-is. Each has a
-    /// `type`: `noul` (probability a condition is true; takes
-    /// `instructions`), `choice` (pick from a `criteria` object), or `score`
-    /// (rate against an ordered `criteria` array).
+    /// `type`: `noul` (probability a condition is true), `choice` (pick
+    /// from a `criteria` object), or `score` (rate against an ordered
+    /// `criteria` array). Every type requires `instructions`.
     pub questions: Map<String, Value>,
 }
 
